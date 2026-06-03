@@ -1,0 +1,23 @@
+# ===== macOS =====
+.DS_Store
+
+# ===== Backups e arquivos temporários locais =====
+_backup*/
+*.bak
+
+# ===== Logs — podem conter dados pessoais (CPF, e-mail) =====
+logs/
+
+# ===== Dados de pacientes — NUNCA versionar (LGPD) =====
+backend/uploads/patients/
+backend/uploads/_pending/
+
+# ===== Configuração real (credenciais de banco) =====
+backend/config/config.php
+
+# ===== Ferramentas locais de desenvolvimento (inseguras em produção) =====
+backend/admin-helper.php
+backend/diagnostic.php
+
+# ===== Seeds privados (pesos clínicos e dados reais de usuários) =====
+sql/seeds-local/
