@@ -1,0 +1,71 @@
+<svg viewBox="0 0 480 440" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Eu Digo X">
+  <defs>
+    <linearGradient id="wMain" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%"  stop-color="#9fcaee"/>
+      <stop offset="50%" stop-color="#2b6cb0"/>
+      <stop offset="100%" stop-color="#14315c"/>
+    </linearGradient>
+    <linearGradient id="wSoft" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%"  stop-color="#d4e8f9"/>
+      <stop offset="60%" stop-color="#7db7e8"/>
+      <stop offset="100%" stop-color="#2b6cb0"/>
+    </linearGradient>
+    <radialGradient id="halo" cx="50%" cy="42%" r="60%">
+      <stop offset="0%"  stop-color="#eaf3fc"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- halo suave -->
+  <ellipse cx="240" cy="180" rx="220" ry="170" fill="url(#halo)"/>
+
+  <!-- ASA grande superior-esquerda, composta por "escamas" (borboletinhas) -->
+  <g opacity="0.96">
+    <path d="M232 175 C150 92 60 86 44 140 C30 188 110 214 168 206 C206 200 226 192 232 175 Z" fill="url(#wMain)"/>
+    <!-- escamas claras sobrepostas -->
+    <path d="M150 120 q14 -16 30 -2 q-12 14 -30 2 Z" fill="#cfe4f7" opacity="0.7"/>
+    <path d="M110 150 q12 -14 26 -2 q-10 12 -26 2 Z" fill="#bcd9f2" opacity="0.7"/>
+    <path d="M186 150 q12 -14 26 -2 q-10 12 -26 2 Z" fill="#e3f0fb" opacity="0.6"/>
+  </g>
+
+  <!-- ASA grande superior-direita -->
+  <g opacity="0.96">
+    <path d="M248 175 C330 92 420 86 436 140 C450 188 370 214 312 206 C274 200 254 192 248 175 Z" fill="url(#wMain)"/>
+    <path d="M300 120 q14 -16 30 -2 q-12 14 -30 2 Z" fill="#cfe4f7" opacity="0.7"/>
+    <path d="M344 150 q12 -14 26 -2 q-10 12 -26 2 Z" fill="#bcd9f2" opacity="0.7"/>
+    <path d="M268 150 q12 -14 26 -2 q-10 12 -26 2 Z" fill="#e3f0fb" opacity="0.6"/>
+  </g>
+
+  <!-- ASA inferior-esquerda -->
+  <g opacity="0.93">
+    <path d="M232 212 C188 234 120 252 104 292 C92 324 152 326 192 304 C220 288 230 250 232 218 Z" fill="url(#wSoft)"/>
+    <path d="M150 256 q12 -13 24 -2 q-10 12 -24 2 Z" fill="#e3f0fb" opacity="0.6"/>
+  </g>
+
+  <!-- ASA inferior-direita -->
+  <g opacity="0.93">
+    <path d="M248 212 C292 234 360 252 376 292 C388 324 328 326 288 304 C260 288 250 250 248 218 Z" fill="url(#wSoft)"/>
+    <path d="M306 256 q12 -13 24 -2 q-10 12 -24 2 Z" fill="#e3f0fb" opacity="0.6"/>
+  </g>
+
+  <!-- corpo + cabeça + antenas -->
+  <ellipse cx="240" cy="210" rx="8" ry="62" fill="#14315c"/>
+  <circle cx="240" cy="150" r="10" fill="#14315c"/>
+  <path d="M240 145 C226 116 208 104 192 102" stroke="#14315c" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+  <path d="M240 145 C254 116 272 104 288 102" stroke="#14315c" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+  <circle cx="190" cy="101" r="5" fill="#2b6cb0"/>
+  <circle cx="290" cy="101" r="5" fill="#2b6cb0"/>
+
+  <!-- borboletinhas voando ao redor -->
+  <g fill="#4f9dd9" opacity="0.6">
+    <path d="M410 70 q9 -11 18 0 q-9 7 -18 0 Z"/>
+    <path d="M70 64 q9 -11 18 0 q-9 7 -18 0 Z"/>
+    <path d="M40 110 q8 -10 16 0 q-8 6 -16 0 Z"/>
+    <path d="M428 120 q8 -10 16 0 q-8 6 -16 0 Z"/>
+  </g>
+
+  <!-- texto "Eu Digo X" estilo manuscrito -->
+  <text x="240" y="400" text-anchor="middle"
+        font-family="'Caveat', cursive" font-size="76" font-weight="700"
+        fill="#2b6cb0">Eu Digo X</text>
+</svg>

@@ -1,0 +1,23 @@
+<svg viewBox="0 0 400 360" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Borboleta Eu Digo X">
+  <defs>
+    <linearGradient id="bfWing" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#7db7e8"/><stop offset="55%" stop-color="#2b6cb0"/><stop offset="100%" stop-color="#14315c"/>
+    </linearGradient>
+    <linearGradient id="bfWing2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#c5def5"/><stop offset="60%" stop-color="#4f9dd9"/><stop offset="100%" stop-color="#2b6cb0"/>
+    </linearGradient>
+  </defs>
+  <ellipse cx="200" cy="185" rx="7" ry="58" fill="#14315c"/>
+  <circle cx="200" cy="128" r="9" fill="#14315c"/>
+  <path d="M200 124 C188 96 172 86 158 84" stroke="#14315c" stroke-width="3" fill="none" stroke-linecap="round"/>
+  <path d="M200 124 C212 96 228 86 242 84" stroke="#14315c" stroke-width="3" fill="none" stroke-linecap="round"/>
+  <circle cx="156" cy="83" r="4" fill="#2b6cb0"/><circle cx="244" cy="83" r="4" fill="#2b6cb0"/>
+  <path d="M198 150 C150 96 70 92 50 132 C30 172 96 196 150 192 C182 190 196 172 198 150 Z" fill="url(#bfWing)" opacity="0.95"/>
+  <path d="M198 196 C160 220 96 240 78 276 C64 304 120 308 156 286 C184 268 196 232 198 200 Z" fill="url(#bfWing2)" opacity="0.92"/>
+  <path d="M202 150 C250 96 330 92 350 132 C370 172 304 196 250 192 C218 190 204 172 202 150 Z" fill="url(#bfWing)" opacity="0.95"/>
+  <path d="M202 196 C240 220 304 240 322 276 C336 304 280 308 244 286 C216 268 204 232 202 200 Z" fill="url(#bfWing2)" opacity="0.92"/>
+  <g fill="#4f9dd9" opacity="0.55">
+    <path d="M330 70 q8 -10 16 0 q-8 6 -16 0 Z"/><path d="M352 110 q7 -9 14 0 q-7 5 -14 0 Z"/>
+    <path d="M70 60 q8 -10 16 0 q-8 6 -16 0 Z"/><path d="M44 96 q7 -9 14 0 q-7 5 -14 0 Z"/>
+  </g>
+</svg>

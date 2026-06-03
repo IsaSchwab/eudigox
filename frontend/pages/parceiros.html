@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Parceiros — Eu Digo X</title>
+  <meta name="description" content="Conheça os parceiros que apoiam o programa Eu Digo X e o Instituto Buko Kaesemodel.">
+  <link rel="stylesheet" href="../assets/css/base.css">
+  <link rel="stylesheet" href="../assets/css/site.css">
+</head>
+<body>
+
+  <div id="site-header" data-active="parceiros"></div>
+
+  <section class="site-hero" style="padding: var(--space-8) 0;">
+    <div class="container">
+      <div class="fancy-title">
+        <span class="small">Quem caminha</span>
+        <span class="script">conosco</span>
+      </div>
+      <p style="text-align:center; max-width:680px; margin:0 auto; color:var(--color-text-muted); font-size:var(--fs-lg);">
+        O Eu Digo X só é possível graças a instituições, empresas e organizações que acreditam
+        na causa e apoiam o nosso trabalho.
+      </p>
+    </div>
+  </section>
+
+  <section class="site-section">
+    <div class="container">
+      <div class="partners-grid">
+        <div class="partner-logo"><img src="../assets/img/parceiros/acp.png" alt="Associação Comercial do Paraná"></div>
+        <div class="partner-logo"><img src="../assets/img/parceiros/amigos-hc.png" alt="Associação dos Amigos do Hospital de Clínicas"></div>
+        <div class="partner-logo"><img src="../assets/img/parceiros/raros-me-importo.png" alt="Aliança Paranaense de Doenças e Síndromes Raras"></div>
+        <div class="partner-logo"><img src="../assets/img/parceiros/jamil.png" alt="Jamil"></div>
+        <div class="partner-logo"><img src="../assets/img/parceiros/db-diagnosticos.png" alt="DB Diagnósticos"></div>
+        <div class="partner-logo"><img src="../assets/img/parceiros/farah-kanda.png" alt="Farah Kanda Sociedade de Advogados"></div>
+        <div class="partner-logo"><img src="../assets/img/parceiros/febrararas.png" alt="FEBRARARAS"></div>
+        <div class="partner-logo"><img src="../assets/img/parceiros/fragile-x-international.png" alt="Fragile X International"></div>
+        <div class="partner-logo"><img src="../assets/img/parceiros/barao-serro-azul.png" alt="Instituto Barão do Serro Azul"></div>
+        <div class="partner-logo"><img src="../assets/img/parceiros/grupo-abg.png" alt="Grupo ABG"></div>
+        <div class="partner-logo"><img src="../assets/img/parceiros/marista-brasil.png" alt="Marista Brasil"></div>
+        <div class="partner-logo"><img src="../assets/img/parceiros/prefeitura-curitiba.png" alt="Prefeitura de Curitiba"></div>
+        <div class="partner-logo"><img src="../assets/img/parceiros/pucpr.png" alt="PUCPR Grupo Marista"></div>
+        <div class="partner-logo"><img src="../assets/img/parceiros/revista-autismo.png" alt="Revista Autismo"></div>
+        <div class="partner-logo"><img src="../assets/img/parceiros/governo-parana.png" alt="Governo do Paraná Secretaria da Saúde"></div>
+        <div class="partner-logo"><img src="../assets/img/parceiros/world-fragile-x-day.png" alt="World Fragile X Day"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- JUNTE-SE A NÓS -->
+  <section class="site-section alt">
+    <div class="container">
+      <div class="site-section-head">
+        <span class="kicker">Faça parte</span>
+        <h2>Gostaria de se juntar a nós?</h2>
+        <p>Preencha o formulário e nossa equipe entrará em contato.</p>
+      </div>
+      <div class="join-form">
+        <div class="field">
+          <label for="j-email">E-mail <span style="color:var(--color-danger)">*</span></label>
+          <input class="input" id="j-email" type="email" placeholder="seu@email.com" required>
+        </div>
+        <div class="field">
+          <label for="j-phone">Telefone <span style="color:var(--color-danger)">*</span></label>
+          <input class="input" id="j-phone" type="tel" placeholder="(00) 00000-0000" required>
+        </div>
+        <div class="field">
+          <label for="j-msg">Qual seu interesse? <span style="color:var(--color-text-subtle)">(opcional)</span></label>
+          <textarea class="textarea" id="j-msg" rows="4" placeholder="Conte como gostaria de apoiar o programa..."></textarea>
+        </div>
+        <button class="btn btn-primary btn-lg" style="width:100%;" onclick="enviarJuntese()">Enviar</button>
+        <p id="j-feedback" style="text-align:center; margin:var(--space-3) 0 0; font-size:var(--fs-sm); display:none;"></p>
+      </div>
+    </div>
+  </section>
+
+  <div id="site-footer"></div>
+  <script src="../assets/js/site.js"></script>
+  <script>
+    function enviarJuntese() {
+      const email = document.getElementById('j-email').value.trim();
+      const phone = document.getElementById('j-phone').value.trim();
+      const fb = document.getElementById('j-feedback');
+      if (!email || !phone) {
+        fb.style.display = 'block';
+        fb.style.color = 'var(--color-danger)';
+        fb.textContent = 'Por favor, preencha e-mail e telefone.';
+        return;
+      }
+      fb.style.display = 'block';
+      fb.style.color = 'var(--color-primary)';
+      fb.textContent = '✓ Obrigado! Recebemos seu interesse e entraremos em contato.';
+      document.getElementById('j-email').value = '';
+      document.getElementById('j-phone').value = '';
+      document.getElementById('j-msg').value = '';
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Produtos — Eu Digo X</title>
+  <meta name="description" content="Lojinha solidária do programa Eu Digo X. Cada produto ajuda a manter as ações do Instituto Buko Kaesemodel.">
+  <link rel="stylesheet" href="../assets/css/base.css">
+  <link rel="stylesheet" href="../assets/css/site.css">
+  <style>
+    /* ---- Página de produtos: imagem real no card + modal de descrição ---- */
+    .product-card { cursor: pointer; text-align: left; width: 100%; font: inherit; color: inherit; }
+    .product-card img.photo {
+      width: 100%; aspect-ratio: 4 / 3; object-fit: cover; display: block;
+      background: var(--color-primary-light);
+    }
+    .product-card .price-row { display: flex; align-items: baseline; gap: var(--space-2); margin-top: var(--space-2); }
+    .product-card .more { font-size: var(--fs-xs); color: var(--color-accent); font-weight: 700; margin: var(--space-3) 0 0; }
+    .product-card:focus-visible { outline: 3px solid var(--color-accent); outline-offset: 2px; }
+
+    /* Modal */
+    .pm-overlay {
+      position: fixed; inset: 0; background: rgb(15 23 42 / 0.55);
+      display: none; align-items: center; justify-content: center;
+      padding: var(--space-5); z-index: 1000;
+    }
+    .pm-overlay.open { display: flex; }
+    .pm-dialog {
+      background: var(--color-surface); border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-lg); max-width: 760px; width: 100%;
+      max-height: 90vh; overflow: hidden; display: grid; grid-template-columns: 1fr 1fr;
+      animation: pm-in 0.18s ease-out;
+    }
+    @keyframes pm-in { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+    .pm-dialog .pm-photo { width: 100%; height: 100%; min-height: 280px; object-fit: cover; background: var(--color-primary-light); }
+    .pm-body { padding: var(--space-6); overflow-y: auto; }
+    .pm-body h3 { font-family: var(--font-display); color: var(--color-navy); font-size: var(--fs-2xl); margin: 0 0 var(--space-2); }
+    .pm-body .pm-price { font-size: var(--fs-xl); font-weight: 800; color: var(--color-primary); margin: 0 0 var(--space-4); }
+    .pm-body .pm-desc { font-size: var(--fs-sm); color: var(--color-text-muted); line-height: var(--lh-normal); white-space: pre-line; }
+    .pm-close {
+      position: absolute; top: var(--space-4); right: var(--space-4);
+      width: 38px; height: 38px; border-radius: var(--radius-pill); border: none;
+      background: var(--color-surface); box-shadow: var(--shadow-sm); cursor: pointer;
+      font-size: var(--fs-xl); line-height: 1; color: var(--color-navy); z-index: 2;
+    }
+    .pm-cta {
+      margin-top: var(--space-5); padding-top: var(--space-4);
+      border-top: 1px solid var(--color-border);
+      font-size: var(--fs-sm); color: var(--color-text-muted);
+    }
+    .pm-cta a { color: var(--color-primary); font-weight: 700; white-space: nowrap; }
+    @media (max-width: 640px) {
+      .pm-dialog { grid-template-columns: 1fr; max-height: 92vh; }
+      .pm-dialog .pm-photo { max-height: 240px; }
+    }
+  </style>
+</head>
+<body>
+
+  <div id="site-header" data-active="produtos"></div>
+
+  <section class="site-hero" style="padding: var(--space-8) 0;">
+    <div class="container">
+      <div class="fancy-title">
+        <span class="small">Nossa</span>
+        <span class="script">Lojinha solidária</span>
+      </div>
+      <p style="text-align:center; max-width:680px; margin:0 auto; color:var(--color-text-muted); font-size:var(--fs-lg);">
+        Cada produto adquirido ajuda a manter o programa Eu Digo X e a levar diagnóstico
+        e acolhimento a mais famílias. Clique em um produto para ver os detalhes.
+      </p>
+    </div>
+  </section>
+
+  <section class="site-section">
+    <div class="container">
+      <div class="card-grid cols-3" id="productGrid"><!-- cards via JS --></div>
+
+      <p style="text-align:center; margin-top:var(--space-7); color:var(--color-text-muted); font-size:var(--fs-base);">
+        🦋 Para realizar sua compra, entre em contato:
+        <a href="tel:+5541991034847" style="color:var(--color-primary); font-weight:700;">(41) 99103-4847</a>
+        ·
+        <a href="tel:+554131560309" style="color:var(--color-primary); font-weight:700;">(41) 3156-0309</a>
+      </p>
+    </div>
+  </section>
+
+  <!-- Modal -->
+  <div class="pm-overlay" id="pmOverlay" role="dialog" aria-modal="true" aria-labelledby="pmTitle">
+    <div class="pm-dialog" style="position:relative;">
+      <button class="pm-close" id="pmClose" aria-label="Fechar">&times;</button>
+      <img class="pm-photo" id="pmPhoto" src="" alt="">
+      <div class="pm-body">
+        <h3 id="pmTitle"></h3>
+        <p class="pm-price" id="pmPrice"></p>
+        <div class="pm-desc" id="pmDesc"></div>
+        <div class="pm-cta">
+          Para adquirir, entre em contato:<br>
+          <a href="tel:+5541991034847">(41) 99103-4847</a> &middot; <a href="tel:+554131560309">(41) 3156-0309</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="site-footer"></div>
+  <script src="../assets/js/site.js"></script>
+  <script>
+    /* Catalogo real - Lojinha solidaria Eu Digo X / Instituto Buko Kaesemodel */
+    const PRODUTOS = [
+      { img: 'cordao-girassol.jpg', nome: 'Cordão — Girassol', preco: 'R$ 15,00',
+        desc: `O cordão personalizado com girassol e Síndrome do X Frágil não apenas oferece identificação, mas também auxilia em emergências, permitindo que pessoas ao redor ofereçam assistência adequada ou busquem informações adicionais.
+
+Cordão confeccionado em fios 100% poliéster acetinado, no tamanho 40 cm dobrado, com 2 cm de largura, fechamento com chapinha metalizada de 2 cm dentada, impressão digital dos dois lados e finalizando com argola e ponta com presilha jacaré para crachás.
+
+Destaques: Material 100% poliéster acetinado · Largura 2 cm · Comprimento fechado 40 cm · Circunferência 80 cm · Acabamento jacaré com argola · Impressão digital frente e verso (4×4 cores).
+
+Onde usar? Ideal para crachás, chaves ou uso diário.` },
+      { img: 'caneca-juntos-fortes.jpg', nome: 'Caneca — Juntos Somos Mais Fortes', preco: 'R$ 40,00',
+        desc: `Caneca personalizada fabricada em cerâmica de alta qualidade, com design elegante, interior e alça coloridos. Excelente opção para presentear alguém especial ou para adicionar um toque de inclusão e solidariedade à rotina.
+
+Com capacidade de 325 ml e altura de 9,5 cm, é ideal para bebidas quentes ou frias. Apta para uso em lava-louças e micro-ondas.
+
+Informações: Impressão em sublimação · Altura 9,5 cm · Diâmetro 8,1 cm · Capacidade 325 ml · Peso 332 g · Material cerâmica.` },
+      { img: 'peso-papel-borboleta.jpg', nome: 'Peso de Papel Borboleta', preco: 'R$ 15,00 – R$ 18,00',
+        desc: `O Peso de papel Eu Digo X, com visual harmonioso e moderno, é uma opção versátil e ecológica para presentear ou colecionar. Feito com pedra branca seixo dolomita rolada, promove o direito à saúde de pessoas e famílias com a Síndrome do X Frágil.
+
+Destaques: Pedra branca seixo dolomita rolada e borboleta acrílica azul claro · Granulometria 4–6 cm · Borboleta acrílica 4,0 × 3,0 cm · Baixa absorção de água e boa durabilidade · Peso aprox. 135 g.
+
+Obs.: por ser produto natural, permita variação de 10 a 30 g no peso final e diferenças de tonalidade e formato.
+
+Onde usar? Casa, escritório ou como objeto decorativo.` },
+      { img: 'moleskine-x-questao.jpg', nome: 'Moleskine — O X da Questão é a Informação', preco: 'R$ 35,00',
+        desc: `A caderneta tipo Moleskine une qualidade premium, estilo e organização ao propósito de garantir o direito à saúde de pessoas e famílias com a Síndrome do X Frágil.
+
+No formato 10 × 15 cm é compacta e fácil de transportar. Folhas pautadas em gramatura 75 g, ideais para anotações, listas e registros diários.
+
+Destaques: Capa dura em couchê 150 g, 4×0 cores, laminação fosca · Miolo 100 folhas pautadas 1×1 cor · Formato 10 × 15 cm · Elástico para fechamento · Peso 150 g.` },
+      { img: 'botton.jpg', nome: 'Botton', preco: 'R$ 5,00',
+        desc: `Botton exclusivo do logo do Programa Eu Digo X.
+
+Destaques: Tampa resistente · Base de plástico de alta dureza · Impressão em papel especial, com alta nitidez e cores vivas, aplicada na frente · À prova d'água · Alfinete protegido, firme, resistente e com ponta fina que não danifica as roupas · Tamanho de 3,7 cm de diâmetro.` },
+      { img: 'adesivo-a-bordo.jpg', nome: 'Adesivo — Pessoa com autismo e/ou Síndrome do X Frágil a bordo', preco: 'R$ 5,00',
+        desc: `Adesivo autocolante vinílico para identificação de pessoa com Síndrome do X Frágil e/ou Autismo a bordo, com a informação de que pode haver resistência à ajuda. Ideal para carros e ônibus escolar.
+
+Pode ser aplicado em qualquer superfície lisa (vidro, lataria de carro, ônibus, moto). Não danifica a superfície. Impresso em alta resolução, de fácil aplicação, à prova d'água e de alta durabilidade — pode molhar e ser exposto ao sol e à chuva.` },
+      { img: 'camiseta-branca-eudigox.jpg', nome: 'Camiseta Branca — Programa Eu Digo X', preco: 'R$ 40,00',
+        desc: `Comunique apoio às pessoas e famílias com a Síndrome do X Frágil através da camiseta do Programa Eu Digo X. Confortável, com toque macio e respirável, caimento impecável e arte exclusiva. A marca Eu Digo X é registrada e de uso exclusivo do Instituto Buko Kaesemodel.
+
+Destaques: Unissex · Meia malha fio 30/1, 100% algodão · Modelagem tradicional · Mangas curtas · Estampa exclusiva em serigrafia/silk screen (4×0), alta definição e durabilidade.
+
+Guia de tamanhos (largura × altura × manga): PP 46×65×19 · P 48×68×19 · M 50×71×19 · G 53×72×21 · GG 56×75×22 cm. Permita variação de até 5%.
+
+Dica: compare com uma camiseta sua para escolher o tamanho ideal.` },
+      { img: 'ecobag-inclusao-acao.jpg', nome: 'Ecobag — Inclusão em Ação', preco: 'R$ 35,00',
+        desc: `Una versatilidade e sustentabilidade ao propósito de garantir o direito à saúde de pessoas e famílias com a Síndrome do X Frágil. Com a Ecobag Inclusão em Ação você expressa amor ao planeta e consciência sobre a importância da solidariedade.
+
+Com 35 cm de altura e 30 cm de largura, é 100% algodão, durável, reutilizável e substitui as sacolas plásticas do dia a dia. Alças confortáveis e reforçadas que suportam até 10 kg.
+
+Destaques: Tecido 100% algodão cru lona · Tamanho 30 L × 35 A · Estampa 4×0 (silkscreen e DTF) · Gramatura 340 g · Alça de fita de algodão cru trançado (52 cm) · Capacidade até 10 kg · Peso 90 g.
+
+Obs.: por ser confeccionada manualmente, permita diferença de 1 a 2 cm na medida final.` },
+      { img: 'caneca-x-questao.jpg', nome: 'Caneca — O X da Questão é a Informação', preco: 'R$ 40,00',
+        desc: `Caneca personalizada fabricada em cerâmica de alta qualidade, com design elegante, interior e alça coloridos. Excelente opção para presentear ou para adicionar um toque de inclusão e solidariedade à rotina.
+
+Com capacidade de 325 ml e altura de 9,5 cm, é ideal para bebidas quentes ou frias. Apta para uso em lava-louças e micro-ondas.
+
+Informações: Impressão em sublimação · Altura 9,5 cm · Diâmetro 8,1 cm · Capacidade 325 ml · Peso 332 g · Material cerâmica.` },
+      { img: 'caneca-inclusao-moda.jpg', nome: 'Caneca — Inclusão Nunca Sai de Moda', preco: 'R$ 40,00',
+        desc: `Caneca personalizada fabricada em cerâmica de alta qualidade, com design elegante, interior e alça coloridos. Excelente opção para presentear ou para adicionar um toque de inclusão e solidariedade à rotina.
+
+Com capacidade de 325 ml e altura de 9,5 cm, é ideal para bebidas quentes ou frias. Apta para uso em lava-louças e micro-ondas.
+
+Informações: Impressão em sublimação · Altura 9,5 cm · Diâmetro 8,1 cm · Capacidade 325 ml · Peso 332 g · Material cerâmica.` },
+      { img: 'caneca-programa-eudigox.jpg', nome: 'Caneca — Programa Eu Digo X', preco: 'R$ 35,00',
+        desc: `Caneca exclusiva do logo do Programa Eu Digo X. Feita com polímero de alta qualidade: leve, resistente e com experiência de consumo agradável.
+
+Seja para presentear alguém especial com uma lembrança única ou para adicionar um toque de inclusão e solidariedade à rotina, é a escolha ideal.
+
+Informações: Caneca de polímero (branca com interior e alça em azul) · BPA free · Impressão em sublimação · Altura 9,2 cm · Diâmetro 8,2 cm · Capacidade 325 ml · Peso 139 g · Material polímero.` },
+      { img: 'moleskine-juntos-fortes.jpg', nome: 'Moleskine — Juntos Somos Mais Fortes', preco: 'R$ 35,00',
+        desc: `Pensar junto é o primeiro passo para mudar o mundo. O Moleskine Juntos Somos Mais Fortes é mais do que um caderno: é um convite à colaboração, ao acolhimento e à construção de ideias que transformam.
+
+Registre com propósito. Escreva com empatia.` },
+      { img: 'moleskine-inclusao-moda.jpg', nome: 'Moleskine — Inclusão Nunca Sai de Moda', preco: 'R$ 35,00',
+        desc: `Onde ideias ganham vida e a inclusão tem voz. O Moleskine Inclusão Nunca Sai de Moda é perfeito para anotar pensamentos, projetos ou inspirações — sempre com um lembrete de que respeitar as diferenças é essencial.
+
+Um caderno que carrega propósito em cada página.` },
+      { img: 'camiseta-preta-eudigox.jpg', nome: 'Camiseta Preta — Programa Eu Digo X', preco: 'R$ 55,00',
+        desc: `Comunique apoio às pessoas e famílias com a Síndrome do X Frágil através da camiseta do Programa Eu Digo X. Confortável, com toque macio e respirável, caimento impecável e arte exclusiva. A marca Eu Digo X é registrada e de uso exclusivo do Instituto Buko Kaesemodel.
+
+Destaques: Unissex · Meia malha fio 30/1, 100% algodão · Modelagem tradicional · Mangas curtas · Estampa exclusiva em serigrafia/silk screen (4×0), alta definição e durabilidade.
+
+Guia de tamanhos (largura × altura × manga): PP 46×65×19 · P 48×68×19 · M 50×71×19 · G 53×72×21 · GG 56×75×22 cm. Permita variação de até 5%.
+
+Dica: compare com uma camiseta sua para escolher o tamanho ideal.` },
+      { img: 'adesivo-borboleta.jpg', nome: 'Adesivo Borboleta Eu Digo X', preco: 'R$ 5,00',
+        desc: `Os adesivos são em papel, ideais para decorar cadernos, agendas e outros itens de papelaria.
+
+Garantia legal contra qualquer defeito de fabricação. Embalagem reforçada para chegar com qualidade e integridade.
+
+Observações: A marca Eu Digo X é registrada e de uso exclusivo do Instituto Buko Kaesemodel · As tonalidades do produto impresso podem variar levemente em relação à imagem no monitor.
+
+Onde usar? Ótimo para colagens em agendas, scrapbooking e personalização criativa.` },
+      { img: 'bolsa-tnt-eudigox.jpg', nome: 'Bolsa TNT — Programa Eu Digo X', preco: 'R$ 15,00',
+        desc: `A sacola ecológica Eu Digo X é versátil, resistente e ecológica para presentear e transportar itens com segurança, promovendo o direito à saúde de pessoas e famílias com a Síndrome do X Frágil.
+
+Ideal para presentes e lembrancinhas, é uma opção ecologicamente consciente em comparação às sacolas plásticas.
+
+Destaques: Tecido 100% PET reciclado · Tamanho 35 × 30,5 cm · Impressão digital · Alça em poliéster trançado de 3 cm · Capacidade até 10 kg · Peso 45 g.
+
+Obs.: por ser confeccionada manualmente, permita diferença de 1 a 2 cm na medida final.` }
+    ];
+
+    const grid = document.getElementById('productGrid');
+    grid.innerHTML = PRODUTOS.map((p, i) => `
+      <button class="product-card" type="button" data-i="${i}">
+        <img class="photo" src="../assets/img/produtos/${p.img}" alt="${p.nome}" loading="lazy">
+        <div class="body">
+          <p class="name">${p.nome}</p>
+          <div class="price-row"><span class="price">${p.preco}</span></div>
+          <p class="more">Ver detalhes &rarr;</p>
+        </div>
+      </button>
+    `).join('');
+
+    const overlay = document.getElementById('pmOverlay');
+    const pmPhoto = document.getElementById('pmPhoto');
+    const pmTitle = document.getElementById('pmTitle');
+    const pmPrice = document.getElementById('pmPrice');
+    const pmDesc  = document.getElementById('pmDesc');
+
+    function openModal(i) {
+      const p = PRODUTOS[i];
+      pmPhoto.src = `../assets/img/produtos/${p.img}`;
+      pmPhoto.alt = p.nome;
+      pmTitle.textContent = p.nome;
+      pmPrice.textContent = p.preco;
+      pmDesc.textContent = p.desc;
+      overlay.classList.add('open');
+      document.body.style.overflow = 'hidden';
+    }
+    function closeModal() {
+      overlay.classList.remove('open');
+      document.body.style.overflow = '';
+    }
+
+    grid.addEventListener('click', e => {
+      const card = e.target.closest('.product-card');
+      if (card) openModal(Number(card.dataset.i));
+    });
+    document.getElementById('pmClose').addEventListener('click', closeModal);
+    overlay.addEventListener('click', e => { if (e.target === overlay) closeModal(); });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+  </script>
+</body>
+</html>
