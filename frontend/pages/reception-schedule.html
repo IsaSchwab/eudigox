@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agendar consulta — Recepção · SGX</title>
+  <link rel="stylesheet" href="../assets/css/base.css">
+  <link rel="stylesheet" href="../assets/css/dashboard.css">
+  <style>
+    .step-card {
+      background: white;
+      border-radius: 12px;
+      padding: var(--space-4);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+      margin-bottom: var(--space-4);
+    }
+    .step-title {
+      font-family: var(--font-body);
+      font-size: var(--fs-lg);
+      margin: 0 0 var(--space-3);
+      display: flex; align-items: center; gap: var(--space-2);
+    }
+    .step-num {
+      width: 28px; height: 28px; border-radius: 50%;
+      background: var(--color-primary, #5b3a92); color: white;
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: var(--fs-sm); font-weight: 600;
+    }
+    .step-num.done { background: #2a7a3e; }
+
+    .search-input {
+      width: 100%; padding: var(--space-3);
+      border: 1px solid var(--color-border);
+      border-radius: 8px;
+      font-size: var(--fs-base);
+    }
+
+    .results-list {
+      margin-top: var(--space-3);
+      border: 1px solid var(--color-border);
+      border-radius: 8px;
+      max-height: 280px;
+      overflow-y: auto;
+    }
+    .result-row {
+      padding: var(--space-3);
+      cursor: pointer;
+      border-bottom: 1px solid var(--color-border);
+    }
+    .result-row:last-child { border-bottom: 0; }
+    .result-row:hover { background: var(--color-bg-soft, #f5f7fa); }
+    .result-row .name { font-weight: 600; }
+    .result-row .meta {
+      font-size: var(--fs-sm); color: var(--color-text-muted);
+      margin-top: 2px;
+    }
+
+    .selected-patient {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: var(--space-3);
+      background: var(--color-bg-soft, #f5f7fa);
+      border-radius: 8px;
+    }
+    .selected-patient .name { font-weight: 600; }
+
+    /* Calendário */
+    .cal-grid {
+      display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px;
+    }
+    .cal-dow {
+      text-align: center; font-size: var(--fs-sm);
+      color: var(--color-text-muted); font-weight: 600;
+      padding: var(--space-2) 0;
+    }
+    .cal-day {
+      aspect-ratio: 1/1;
+      display: flex; align-items: center; justify-content: center;
+      border-radius: 8px; cursor: pointer;
+      border: 1px solid transparent;
+      background: var(--color-bg-soft, #f5f7fa);
+    }
+    .cal-day:hover:not(.blocked):not(.selected) {
+      border-color: var(--color-primary, #5b3a92);
+      background: white;
+    }
+    .cal-day.blocked { cursor: not-allowed; color: #c5c5c5; background: transparent; }
+    .cal-day.empty { background: transparent; cursor: default; }
+    .cal-day.selected {
+      background: var(--color-primary, #5b3a92);
+      color: white; font-weight: 600;
+    }
+    .cal-day.today { border-color: var(--color-primary, #5b3a92); }
+
+    .cal-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: var(--space-3);
+    }
+    .cal-header h4 {
+      margin: 0; font-family: var(--font-body);
+      font-size: var(--fs-base); text-transform: capitalize;
+    }
+    .cal-header button {
+      background: transparent; border: 1px solid var(--color-border);
+      border-radius: 6px; padding: 4px 10px; cursor: pointer;
+    }
+
+    /* Slots */
+    .slots-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+      gap: var(--space-2);
+    }
+    .slot-btn {
+      padding: var(--space-3);
+      border-radius: 8px;
+      border: 1px solid var(--color-border);
+      background: white; cursor: pointer;
+      font-size: var(--fs-base);
+    }
+    .slot-btn:hover:not(:disabled) {
+      border-color: var(--color-primary, #5b3a92);
+      background: var(--color-bg-soft, #f5f7fa);
+    }
+    .slot-btn:disabled {
+      opacity: 0.35; cursor: not-allowed; text-decoration: line-through;
+    }
+    .slot-btn.selected {
+      background: var(--color-primary, #5b3a92);
+      color: white; border-color: var(--color-primary, #5b3a92);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="dash" id="dash-root">
+    <main class="dash-main">
+
+      <header class="dash-header">
+        <div>
+          <h1 class="dash-title">Agendar consulta</h1>
+          <p class="dash-subtitle">Para pacientes que já se cadastraram pelo aplicativo. Busque por nome ou CPF.</p>
+        </div>
+      </header>
+
+      <div id="content"></div>
+
+    </main>
+  </div>
+
+  <script src="../assets/js/api.js"></script>
+  <script src="../assets/js/shared.js"></script>
+  <script>
+    if (!requireAuth(['receptionist','admin'])) { /* redireciona */ }
+    document.getElementById('dash-root').insertAdjacentHTML('afterbegin', renderSidebar('schedule'));
+
+    const state = {
+      patient: null,         // {id, full_name, cpf, birth_date, phone, ...}
+      searchTimer: null,
+      calendar: null,        // resposta do /calendar?patient_id=...
+      currentYear:  new Date().getFullYear(),
+      currentMonth: new Date().getMonth() + 1,
+      selectedDate: null,
+      slots: null,           // resposta de /available-slots
+      selectedTime: null,
+      notes: '',
+      booking: false,
+    };
+
+    function render() {
+      document.getElementById('content').innerHTML = `
+        ${renderStep1()}
+        ${state.patient ? renderStep2() : ''}
+        ${state.patient && state.selectedDate ? renderStep3() : ''}
+      `;
+      bindEvents();
+    }
+
+    /* ===== Passo 1: buscar/selecionar paciente ===== */
+    function renderStep1() {
+      if (state.patient) {
+        return `
+          <div class="step-card">
+            <h3 class="step-title"><span class="step-num done">✓</span> Paciente selecionado</h3>
+            <div class="selected-patient">
+              <div>
+                <div class="name">${escapeHtml(state.patient.full_name)}</div>
+                <div class="meta" style="font-size: var(--fs-sm); color: var(--color-text-muted); margin-top: 2px;">
+                  ${state.patient.cpf ? 'CPF ' + escapeHtml(state.patient.cpf) + ' · ' : ''}
+                  ${state.patient.phone ? 'Tel ' + escapeHtml(state.patient.phone) : ''}
+                </div>
+              </div>
+              <button class="btn btn-ghost btn-sm" onclick="clearPatient()">Trocar paciente</button>
+            </div>
+          </div>
+        `;
+      }
+
+      return `
+        <div class="step-card">
+          <h3 class="step-title"><span class="step-num">1</span> Buscar paciente</h3>
+          <input class="search-input" id="search-input"
+                 type="text" placeholder="Nome ou CPF do paciente"
+                 autocomplete="off" autofocus>
+          <div id="search-results"></div>
+          <p class="text-small text-muted" style="margin-top: var(--space-3);">
+            Apenas pacientes que já se cadastraram pelo aplicativo aparecem aqui.
+            Se o paciente ainda não fez cadastro, ele precisa entrar no aplicativo
+            e fazer a triagem primeiro.
+          </p>
+        </div>
+      `;
+    }
+
+    function renderStep2() {
+      return `
+        <div class="step-card">
+          <h3 class="step-title"><span class="step-num ${state.selectedDate ? 'done' : ''}">${state.selectedDate ? '✓' : '2'}</span> Escolha o dia e horário</h3>
+          ${renderCalendarHtml()}
+          ${state.selectedDate ? renderSlotsHtml() : ''}
+        </div>
+      `;
+    }
+
+    function renderCalendarHtml() {
+      const cal = state.calendar;
+      if (!cal) return '<div class="empty-state">Carregando calendário...</div>';
+
+      const monthName = new Date(cal.year, cal.month - 1, 1)
+        .toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+
+      const firstDow = new Date(cal.year, cal.month - 1, 1).getDay();
+      const leadingEmpty = (firstDow + 6) % 7;
+      const today = new Date().toISOString().slice(0, 10);
+      const dowLabels = ['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'];
+
+      let html = `
+        <div class="cal-header">
+          <button id="cal-prev">←</button>
+          <h4>${monthName}</h4>
+          <button id="cal-next">→</button>
+        </div>
+        <div class="cal-grid">
+      `;
+      dowLabels.forEach(d => html += `<div class="cal-dow">${d}</div>`);
+      for (let i = 0; i < leadingEmpty; i++) html += '<div class="cal-day empty"></div>';
+
+      cal.days.forEach(d => {
+        const dayNum = parseInt(d.date.slice(-2), 10);
+        const classes = ['cal-day'];
+        // Recepção pode marcar em dias "antes da antecedência" com confirmação,
+        // então NÃO bloqueia visualmente por before_min — só por past/weekend/full.
+        const blockedByRule = ['past', 'weekend', 'full'].includes(d.reason);
+        if (blockedByRule)              classes.push('blocked');
+        if (d.date === today && !blockedByRule) classes.push('today');
+        if (d.date === state.selectedDate) classes.push('selected');
+        html += `<div class="${classes.join(' ')}"
+                      data-date="${d.date}"
+                      data-blocked="${blockedByRule ? 1 : 0}"
+                      data-before-min="${d.reason === 'before_min' ? 1 : 0}">${dayNum}</div>`;
+      });
+
+      html += '</div>';
+      return html;
+    }
+
+    function renderSlotsHtml() {
+      if (!state.slots) return '<div class="empty-state" style="margin-top: var(--space-4);">Carregando horários...</div>';
+
+      const dateLabel = new Date(state.selectedDate + 'T00:00:00')
+        .toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' });
+
+      const slots = state.slots.slots || [];
+      const anyAvailable = slots.some(s => s.available);
+
+      return `
+        <div style="margin-top: var(--space-5); padding-top: var(--space-4); border-top: 1px solid var(--color-border);">
+          <h4 style="margin: 0 0 var(--space-2); text-transform: capitalize; font-family: var(--font-body);">
+            ${dateLabel}
+          </h4>
+          ${ anyAvailable ? `
+            <div class="slots-grid">
+              ${slots.map(s => `
+                <button class="slot-btn ${state.selectedTime === s.time ? 'selected' : ''}"
+                        ${s.available ? '' : 'disabled'}
+                        data-time="${s.time}">${s.time}</button>
+              `).join('')}
+            </div>
+          ` : '<p class="text-small text-muted">Não há horários disponíveis neste dia.</p>' }
+        </div>
+      `;
+    }
+
+    function renderStep3() {
+      if (!state.selectedTime) return '';
+      const dateLabel = new Date(state.selectedDate + 'T00:00:00')
+        .toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' });
+      return `
+        <div class="step-card">
+          <h3 class="step-title"><span class="step-num">3</span> Confirmar agendamento</h3>
+          <p style="margin-bottom: var(--space-3);">
+            Consulta para <strong>${escapeHtml(state.patient.full_name)}</strong>
+            em <strong>${dateLabel} às ${state.selectedTime}</strong>.
+          </p>
+          <div class="field" style="margin-bottom: var(--space-3);">
+            <label for="notes-input" style="display: block; font-size: var(--fs-sm); font-weight: 600; margin-bottom: 4px;">
+              Observações (opcional)
+            </label>
+            <textarea id="notes-input" rows="2"
+                      style="width:100%; padding: var(--space-2); border: 1px solid var(--color-border); border-radius: 6px; font-family: inherit;"
+                      placeholder="Ex: retorno; paciente pediu por telefone..."
+            >${escapeHtml(state.notes)}</textarea>
+          </div>
+          <button id="btn-confirm" class="btn btn-primary btn-lg" ${state.booking ? 'disabled' : ''}>
+            ${state.booking ? 'Agendando...' : 'Confirmar agendamento'}
+          </button>
+        </div>
+      `;
+    }
+
+    /* ===== Eventos ===== */
+    function bindEvents() {
+      const si = document.getElementById('search-input');
+      if (si) {
+        si.oninput = (e) => {
+          clearTimeout(state.searchTimer);
+          const q = e.target.value.trim();
+          if (q.length < 2) {
+            document.getElementById('search-results').innerHTML = '';
+            return;
+          }
+          state.searchTimer = setTimeout(() => doSearch(q), 250);
+        };
+      }
+
+      const prev = document.getElementById('cal-prev');
+      const next = document.getElementById('cal-next');
+      if (prev) prev.onclick = () => navigateMonth(-1);
+      if (next) next.onclick = () => navigateMonth(1);
+
+      document.querySelectorAll('.cal-day[data-date]').forEach(el => {
+        el.onclick = () => {
+          if (el.dataset.blocked === '1') return;
+          state.selectedDate = el.dataset.date;
+          state.selectedTime = null;
+          state.slots = null;
+          render();
+          loadSlots();
+        };
+      });
+
+      document.querySelectorAll('.slot-btn[data-time]').forEach(el => {
+        el.onclick = () => {
+          if (el.disabled) return;
+          state.selectedTime = el.dataset.time;
+          render();
+        };
+      });
+
+      const notesEl = document.getElementById('notes-input');
+      if (notesEl) notesEl.oninput = (e) => { state.notes = e.target.value; };
+
+      const btn = document.getElementById('btn-confirm');
+      if (btn) btn.onclick = () => confirmBooking();
+    }
+
+    async function doSearch(q) {
+      try {
+        const list = await api.get('/patients/list?q=' + encodeURIComponent(q));
+        const resultsEl = document.getElementById('search-results');
+        if (!list || list.length === 0) {
+          resultsEl.innerHTML = `
+            <div class="text-small text-muted" style="margin-top: var(--space-3); padding: var(--space-3); background: var(--color-bg-soft, #f5f7fa); border-radius: 6px;">
+              Nenhum paciente encontrado. Confira a grafia ou o CPF.
+            </div>`;
+          return;
+        }
+        resultsEl.innerHTML = `
+          <div class="results-list">
+            ${list.map(p => `
+              <div class="result-row" data-id="${p.id}">
+                <div class="name">${escapeHtml(p.full_name)}</div>
+                <div class="meta">
+                  ${p.cpf ? 'CPF ' + escapeHtml(p.cpf) : '<em>sem CPF cadastrado</em>'}
+                  ${p.phone ? ' · ' + escapeHtml(p.phone) : ''}
+                  ${p.birth_date ? ' · nasc. ' + formatBirth(p.birth_date) : ''}
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        `;
+        resultsEl.querySelectorAll('.result-row').forEach(el => {
+          el.onclick = () => selectPatient(list.find(x => x.id === parseInt(el.dataset.id, 10)));
+        });
+      } catch (err) {
+        toast.error('Erro na busca: ' + (err.message || ''));
+      }
+    }
+
+    function formatBirth(s) {
+      if (!s) return '';
+      const [y,m,d] = s.split('-');
+      return `${d}/${m}/${y}`;
+    }
+
+    async function selectPatient(p) {
+      state.patient = p;
+      state.selectedDate = null;
+      state.selectedTime = null;
+      state.slots = null;
+      state.notes = '';
+      const now = new Date();
+      state.currentYear  = now.getFullYear();
+      state.currentMonth = now.getMonth() + 1;
+      await loadCalendar();
+      render();
+    }
+
+    function clearPatient() {
+      state.patient = null;
+      state.selectedDate = null;
+      state.selectedTime = null;
+      state.calendar = null;
+      state.slots = null;
+      state.notes = '';
+      render();
+    }
+
+    async function loadCalendar() {
+      try {
+        const q = new URLSearchParams({
+          year: state.currentYear,
+          month: state.currentMonth,
+          patient_id: state.patient.id,
+        });
+        state.calendar = await api.get('/appointments/calendar?' + q);
+      } catch (err) {
+        toast.error('Erro ao carregar calendário: ' + (err.message || ''));
+      }
+    }
+
+    async function loadSlots() {
+      try {
+        state.slots = await api.get('/appointments/available-slots?date=' + state.selectedDate);
+        render();
+      } catch (err) {
+        toast.error('Erro ao carregar horários.');
+      }
+    }
+
+    async function navigateMonth(delta) {
+      const dt = new Date(state.currentYear, state.currentMonth - 1 + delta, 1);
+      const today = new Date(); today.setDate(1);
+      if (dt < today) return; // não deixa voltar
+      const max = new Date(); max.setMonth(max.getMonth() + 6); max.setDate(1);
+      if (dt > max) return;
+      state.currentYear  = dt.getFullYear();
+      state.currentMonth = dt.getMonth() + 1;
+      state.selectedDate = null;
+      state.slots = null;
+      await loadCalendar();
+      render();
+    }
+
+    async function confirmBooking(force = false) {
+      if (!state.patient || !state.selectedDate || !state.selectedTime) return;
+      state.booking = true; render();
+
+      try {
+        const data = await api.post('/appointments/book-for-patient', {
+          patient_id: state.patient.id,
+          date:       state.selectedDate,
+          time:       state.selectedTime,
+          notes:      state.notes || null,
+          force:      force ? true : undefined,
+        });
+        showSuccess(data);
+      } catch (err) {
+        state.booking = false;
+        // 422 com override → pergunta se quer forçar
+        if (err.status === 422 && err.details && err.details.override_with === 'force') {
+          const msg = err.details.date || err.message;
+          if (confirm(msg + '\n\nA recepção pode forçar este agendamento. Confirmar mesmo assim?')) {
+            return confirmBooking(true);
+          }
+          render();
+          return;
+        }
+        toast.error(err.message || 'Não foi possível agendar.');
+        // Se foi conflito de slot, recarrega
+        if (err.status === 409) {
+          state.slots = null; state.selectedTime = null;
+          await loadSlots();
+        }
+        render();
+      }
+    }
+
+    function showSuccess(data) {
+      document.getElementById('content').innerHTML = `
+        <div class="step-card" style="text-align: center; padding: var(--space-6);">
+          <div style="font-size: 3rem; color: #2a7a3e;">✓</div>
+          <h2 style="margin-top: var(--space-3);">Consulta agendada!</h2>
+          <p>Consulta para <strong>${escapeHtml(data.patient_name)}</strong> com
+             <strong>${escapeHtml(data.doctor_name)}</strong> em
+             <strong>${formatDateTimeBR(data.scheduled_at)}</strong>.</p>
+          <p class="text-small text-muted" style="margin-top: var(--space-3);">
+            Lembrete: a consulta é online. O link de acesso será enviado pela clínica
+            por WhatsApp/e-mail próximo à data.
+          </p>
+          <div style="margin-top: var(--space-4); display: flex; gap: var(--space-3); justify-content: center;">
+            <a href="reception-calendar.html" class="btn btn-primary">Ver no calendário</a>
+            <button class="btn btn-ghost" onclick="location.reload()">Agendar outra consulta</button>
+          </div>
+        </div>
+      `;
+    }
+
+    function formatDateTimeBR(s) {
+      if (!s) return '';
+      const d = new Date(String(s).replace(' ', 'T'));
+      return d.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' })
+           + ' às ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    }
+    function escapeHtml(s) {
+      return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+
+    render();
+  </script>
+</body>
+</html>

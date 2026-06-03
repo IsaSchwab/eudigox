@@ -1,0 +1,1044 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Prontuário — SGX</title>
+  <link rel="stylesheet" href="../assets/css/base.css">
+  <link rel="stylesheet" href="../assets/css/dashboard.css">
+</head>
+<body>
+
+  <div class="dash" id="dash-root">
+    <main class="dash-main">
+
+      <!-- Breadcrumb -->
+      <div style="margin-bottom: var(--space-4); font-size: var(--fs-sm); color: var(--color-text-muted);">
+        <a id="breadcrumb-link" href="clinic-dashboard.html">← Voltar</a>
+      </div>
+
+      <!-- Header do paciente -->
+      <div id="patient-header"></div>
+
+      <!-- Banner da próxima consulta (com link, pra profissional clicar) -->
+      <div id="appt-meeting-bar"></div>
+
+      <!-- Tabs -->
+      <div class="tabs">
+        <button class="tab active" data-tab="overview">Visão geral</button>
+        <button class="tab" data-tab="indicators">Indicadores respondidos</button>
+        <button class="tab" data-tab="history">Histórico de triagens</button>
+        <button class="tab" data-tab="exams">Exames moleculares</button>
+        <button class="tab" data-tab="notes">Anotações clínicas</button>
+      </div>
+
+      <!-- Conteúdos das tabs -->
+      <div id="tab-overview" class="tab-content active"></div>
+      <div id="tab-indicators" class="tab-content"></div>
+      <div id="tab-history" class="tab-content"></div>
+      <div id="tab-exams" class="tab-content"></div>
+      <div id="tab-notes" class="tab-content"></div>
+
+    </main>
+  </div>
+
+  <!-- Modal: finalizar consulta -->
+  <div id="finish-modal" class="modal-backdrop" style="display:none;">
+    <div class="modal" style="max-width: 480px;">
+      <div class="modal-header">
+        <div>
+          <h3>Finalizar consulta</h3>
+          <p class="text-small text-muted">Marque o status desta consulta.</p>
+        </div>
+        <button class="modal-close" onclick="closeFinishModal()">×</button>
+      </div>
+      <div class="modal-body">
+        <div style="display:flex; flex-direction:column; gap: var(--space-3);">
+          <button class="btn btn-primary" style="background:#10b981; border-color:#10b981; padding: 14px; font-size: 15px;"
+                  onclick="finishConsulta('completed')">
+            ✓ Paciente compareceu — consulta realizada
+          </button>
+          <button class="btn btn-secondary" style="padding: 14px; font-size: 15px;"
+                  onclick="finishConsulta('no_show')">
+            ✕ Paciente não compareceu
+          </button>
+          <button class="btn" style="background:#dc2626; color:white; padding: 14px; font-size: 15px;"
+                  onclick="finishConsulta('cancelled')">
+            🚫 Cancelar consulta
+          </button>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="closeFinishModal()">Voltar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal de registro de exame -->
+  <div id="exam-modal" class="modal-backdrop" style="display:none;">
+    <div class="modal">
+      <div class="modal-header">
+        <div>
+          <h3>Registrar exame molecular</h3>
+          <p class="text-small text-muted">Preencha os dados do exame realizado.</p>
+        </div>
+        <button class="modal-close" onclick="closeExamModal()">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="field">
+          <label for="exam-type">Tipo de exame</label>
+          <select class="select" id="exam-type">
+            <option value="pcr">PCR</option>
+            <option value="southern_blotting">Southern Blotting</option>
+          </select>
+        </div>
+        <div class="grid gap-4" style="grid-template-columns: 1fr 1fr;">
+          <div class="field">
+            <label for="exam-date">Data do exame</label>
+            <input class="input" id="exam-date" type="date" required>
+          </div>
+          <div class="field">
+            <label for="exam-result">Resultado</label>
+            <select class="select" id="exam-result">
+              <option value="">Selecione...</option>
+              <option value="positive">Positivo</option>
+              <option value="negative">Negativo</option>
+              <option value="inconclusive">Inconclusivo</option>
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <label for="exam-lab">Laboratório (opcional)</label>
+          <input class="input" id="exam-lab" type="text" placeholder="Ex: Lab. Genética Molecular">
+        </div>
+        <div class="field">
+          <label for="exam-notes">Observações (opcional)</label>
+          <textarea class="textarea" id="exam-notes" rows="3"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="closeExamModal()">Cancelar</button>
+        <button class="btn btn-primary" onclick="submitExam()" id="btn-submit-exam">Registrar exame</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="../assets/js/api.js"></script>
+  <script src="../assets/js/shared.js"></script>
+  <script>
+    if (!requireAuth(['doctor', 'nurse', 'admin', 'receptionist'])) { /* redireciona */ }
+
+    document.getElementById('dash-root').insertAdjacentHTML('afterbegin', renderSidebar('patients'));
+
+    const params      = new URLSearchParams(location.search);
+    const patientId   = parseInt(params.get('id'), 10);
+    const screeningId = parseInt(params.get('screening'), 10) || null;
+    // Modo de visualização: 'view' = somente leitura (vindo de Triagens)
+    //                       default = completo (vindo de Consultas ou direto)
+    const viewMode = params.get('mode') === 'view';
+
+    // Ajustar breadcrumb conforme a origem
+    const breadcrumbLink = document.getElementById('breadcrumb-link');
+    if (breadcrumbLink) {
+      const u = api.getUser();
+      // Se veio com ?back=..., respeita esse retorno (preserva ano/mês/dia
+      // do calendário, etc.) — usado pra recepção voltar pro calendário
+      // no mesmo dia que estava olhando.
+      const backParam = params.get('back');
+      if (backParam === 'calendario') {
+        const backQs = new URLSearchParams();
+        ['year','month','date','doctor'].forEach(k => {
+          const v = params.get(k);
+          if (v) backQs.set(k, v);
+        });
+        breadcrumbLink.href = 'reception-calendar.html' + (backQs.toString() ? ('?' + backQs) : '');
+        breadcrumbLink.textContent = '← Voltar para o calendário';
+      } else if (backParam === 'minha-agenda') {
+        const backQs = new URLSearchParams();
+        ['view','year','month','date','list_period','list_priority'].forEach(k => {
+          const v = params.get(k);
+          if (v) backQs.set(k, v);
+        });
+        breadcrumbLink.href = 'doctor-appointments.html' + (backQs.toString() ? ('?' + backQs) : '');
+        breadcrumbLink.textContent = '← Voltar para minha agenda';
+      } else if (viewMode) {
+        breadcrumbLink.href = 'clinic-dashboard.html';
+        breadcrumbLink.textContent = '← Voltar para triagens';
+      } else if (u && (u.role === 'doctor' || u.role === 'nurse')) {
+        breadcrumbLink.href = 'doctor-appointments.html';
+        breadcrumbLink.textContent = '← Voltar para consultas';
+      } else if (u && u.role === 'receptionist') {
+        breadcrumbLink.href = 'reception-calendar.html';
+        breadcrumbLink.textContent = '← Voltar para o calendário';
+      } else {
+        breadcrumbLink.href = 'clinic-dashboard.html';
+        breadcrumbLink.textContent = '← Voltar';
+      }
+    }
+
+    if (!patientId) {
+      toast.error('Paciente não especificado.');
+      const u = api.getUser();
+      const home = (u && typeof ROLE_HOME !== 'undefined' && ROLE_HOME[u.role])
+        ? ROLE_HOME[u.role]
+        : 'clinic-dashboard.html';
+      setTimeout(() => location.href = home, 1000);
+    }
+
+    let patientData     = null;
+    let screeningDetail = null;
+
+    async function loadAll() {
+      try {
+        // Detalhe do paciente
+        const p = await api.get(`/patients/get?id=${patientId}`);
+        patientData = p;
+        renderHeader(p.patient);
+        renderMeetingBar();
+        renderOverview(p);
+        renderHistory(p.screenings);
+        renderExams(p.exams);
+
+        // Detalhe da triagem (se especificada, ou a mais recente)
+        const sid = screeningId || (p.screenings[0]?.id);
+        if (sid) {
+          const s = await api.get(`/screenings/get?id=${sid}`);
+          screeningDetail = s;
+          renderIndicators(s);
+          renderNotes(s.screening);
+        } else {
+          document.getElementById('tab-indicators').innerHTML =
+            '<div class="empty-state"><div class="icon">📋</div>Sem triagens ainda.</div>';
+        }
+      } catch (err) {
+        toast.error(err.message);
+      }
+    }
+
+    function renderHeader(p) {
+      const initials = getPatientInitials(p.full_name);
+      const user = api.getUser();
+      const canRegisterExam = user.role === 'doctor' && !viewMode;
+
+      // Detecta se tem consulta agendada para HOJE com este paciente (e com este médico)
+      const todayApt = findTodayAppointment();
+      const canFinishConsulta = !viewMode && user.role === 'doctor' && todayApt;
+
+      document.getElementById('patient-header').innerHTML = `
+        <div class="patient-header">
+          <div class="avatar-lg">${escapeHtmlGlobal(initials)}</div>
+          <div style="flex:1;min-width:0;">
+            <h2>${escapeHtmlGlobal(p.full_name)}</h2>
+            <div class="patient-meta">
+              <span>📅 ${formatDateOnly(p.birth_date)} (${p.age} anos)</span>
+              <span>${p.biological_sex === 'M' ? '♂ Masculino' : '♀ Feminino'}</span>
+              ${p.cpf ? `<span>CPF: ${escapeHtmlGlobal(p.cpf)}</span>` : ''}
+              ${p.user_email ? `<span>✉ ${escapeHtmlGlobal(p.user_email)}</span>` : ''}
+              ${viewMode ? `<span style="color: var(--color-primary); font-weight: 600;">👁 Modo somente leitura</span>` : ''}
+            </div>
+          </div>
+          <div class="patient-actions" style="display:flex; gap:var(--space-2); flex-wrap:wrap;">
+            ${canFinishConsulta ? `
+              <button class="btn btn-secondary" onclick="openFinishModal(${todayApt.id})" title="Marcar status desta consulta">
+                ✓ Finalizar consulta
+              </button>
+            ` : ''}
+            ${canRegisterExam ? `
+              <button class="btn btn-primary" onclick="openExamModal()">
+                + Registrar exame molecular
+              </button>
+            ` : ''}
+          </div>
+        </div>
+      `;
+    }
+
+    // Procura a consulta de HOJE (status scheduled) com o médico logado.
+    // Retorna o objeto da consulta ou null.
+    function findTodayAppointment() {
+      if (!patientData || !patientData.appointments) return null;
+      const user = api.getUser();
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate() + 1);
+
+      return patientData.appointments.find(a => {
+        if (a.status !== 'scheduled') return false;
+        const apptDate = new Date(String(a.scheduled_at).replace(' ', 'T'));
+        return apptDate >= today && apptDate < tomorrow
+            && (!a.doctor_user_id || Number(a.doctor_user_id) === Number(user.id));
+      }) || null;
+    }
+
+    // Próxima consulta futura (qualquer profissional). Usado no banner do topo.
+    function findNextAppointment() {
+      if (!patientData || !patientData.appointments) return null;
+      const now = new Date();
+      const futures = patientData.appointments
+        .filter(a => a.status === 'scheduled'
+                  && new Date(String(a.scheduled_at).replace(' ', 'T')) >= now)
+        .sort((a, b) =>
+          new Date(String(a.scheduled_at).replace(' ', 'T'))
+        - new Date(String(b.scheduled_at).replace(' ', 'T'))
+        );
+      return futures[0] || null;
+    }
+
+    function renderMeetingBar() {
+      const bar = document.getElementById('appt-meeting-bar');
+      if (!bar) return;
+      const u = api.getUser();
+      // Só profissional (doctor/nurse/admin) vê esse banner.
+      if (!u || u.role === 'patient' || u.role === 'receptionist') {
+        bar.innerHTML = '';
+        return;
+      }
+      const next = findNextAppointment();
+      if (!next) { bar.innerHTML = ''; return; }
+
+      const dt = new Date(String(next.scheduled_at).replace(' ', 'T'));
+      const dateStr = dt.toLocaleDateString('pt-BR', {
+        weekday: 'long', day: '2-digit', month: 'long'
+      });
+      const timeStr = dt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      const hasLink = next.meeting_link && String(next.meeting_link).trim() !== '';
+
+      bar.innerHTML = `
+        <div class="card" style="margin-bottom: var(--space-4); border-left: 4px solid var(--color-primary, #5b3a92);">
+          <div style="display: flex; gap: var(--space-4); align-items: center; flex-wrap: wrap;">
+            <div style="flex: 1; min-width: 240px;">
+              <div class="text-small text-muted" style="text-transform: uppercase; letter-spacing: 0.04em;">
+                Próxima consulta
+              </div>
+              <div style="font-weight: 600; font-size: var(--fs-lg); margin-top: 2px; text-transform: capitalize;">
+                ${dateStr} às ${timeStr}
+              </div>
+              ${ next.doctor_name ? `
+                <div class="text-small text-muted" style="margin-top: 2px;">
+                  Com ${escapeHtmlGlobal(next.doctor_name)}
+                </div>
+              ` : '' }
+            </div>
+            <div>
+              ${ hasLink
+                ? `<a class="btn btn-primary" href="${escapeHtmlGlobal(next.meeting_link)}" target="_blank" rel="noopener">🎥 Entrar na reunião</a>`
+                : `<span class="text-small text-muted">Link da reunião ainda não cadastrado.</span>`
+              }
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    /* ===== Modal: Finalizar consulta ===== */
+    let pendingFinishApptId = null;
+
+    function openFinishModal(apptId) {
+      pendingFinishApptId = apptId;
+      document.getElementById('finish-modal').style.display = 'grid';
+    }
+    function closeFinishModal() {
+      document.getElementById('finish-modal').style.display = 'none';
+      pendingFinishApptId = null;
+    }
+
+    async function finishConsulta(newStatus) {
+      if (!pendingFinishApptId) return;
+      const labels = {
+        completed: 'realizada',
+        no_show:   'paciente não compareceu',
+        cancelled: 'cancelada',
+      };
+      try {
+        await api.post('/appointments/update', {
+          id: pendingFinishApptId,
+          status: newStatus,
+        });
+        toast.success(`Consulta marcada como ${labels[newStatus]}.`);
+        closeFinishModal();
+        // Recarrega dados pra esconder o botão (já não tem mais consulta scheduled)
+        loadAll();
+      } catch (err) {
+        toast.error(err.message);
+      }
+    }
+
+    function renderOverview(data) {
+      const p = data.patient;
+      const lastScreening = data.screenings[0];
+      const lastExam = data.exams[0];
+      const uploads = data.uploads || [];
+      const socio   = data.socioeconomic;
+
+      document.getElementById('tab-overview').innerHTML = `
+        <div class="grid gap-4" style="grid-template-columns: 2fr 1fr;">
+          <div class="card">
+            <h3 style="font-family: var(--font-body); font-size: var(--fs-base); margin-bottom: var(--space-4);">
+              Dados pessoais
+            </h3>
+            <dl class="def-list">
+              <dt>Nome completo</dt>             <dd>${escapeHtmlGlobal(p.full_name)}</dd>
+              <dt>Data de nascimento</dt>        <dd>${formatDateOnly(p.birth_date)} (${p.age} anos)</dd>
+              <dt>Sexo biológico</dt>            <dd>${p.biological_sex === 'M' ? 'Masculino' : 'Feminino'}</dd>
+              <dt>CPF</dt>                       <dd>${escapeHtmlGlobal(p.cpf || '—')}</dd>
+              ${p.phone ? `
+                <dt>Telefone do paciente</dt>    <dd>${escapeHtmlGlobal(p.phone)}</dd>
+              ` : ''}
+              <dt>E-mail de acesso</dt>          <dd>${escapeHtmlGlobal(p.user_email || '—')}</dd>
+              <dt>Cadastrado em</dt>             <dd>${formatDateBR(p.created_at)}</dd>
+              ${p.guardian_name ? `
+                <dt>Responsável</dt>             <dd>${escapeHtmlGlobal(p.guardian_name)} (${escapeHtmlGlobal(p.guardian_relationship || '—')})</dd>
+                <dt>Telefone do responsável</dt> <dd>${escapeHtmlGlobal(p.guardian_phone || '—')}</dd>
+              ` : ''}
+              ${p.zip_code || p.street ? `
+                <dt>Endereço</dt>
+                <dd>
+                  ${escapeHtmlGlobal(p.street || '—')}, ${escapeHtmlGlobal(p.number || '—')}${p.complement ? ' — ' + escapeHtmlGlobal(p.complement) : ''}
+                  <br>${escapeHtmlGlobal(p.neighborhood || '—')} — ${escapeHtmlGlobal(p.city || '—')}/${escapeHtmlGlobal(p.state || '—')}
+                  <br>CEP ${escapeHtmlGlobal(p.zip_code || '—')}
+                </dd>
+              ` : ''}
+            </dl>
+            ${p.family_history_notes ? `
+              <div style="margin-top: var(--space-4); padding-top: var(--space-4); border-top: 1px solid var(--color-border);">
+                <h4 style="font-family: var(--font-body); font-size: var(--fs-sm); text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-muted); margin-bottom: var(--space-2);">
+                  Histórico familiar relatado
+                </h4>
+                <p style="white-space: pre-wrap; font-size: var(--fs-sm); line-height: 1.55;">${escapeHtmlGlobal(p.family_history_notes)}</p>
+                <p class="text-small text-muted" style="margin-top: var(--space-2);">
+                  Relato livre do paciente/responsável. Não entra no cálculo do score.
+                </p>
+              </div>
+            ` : ''}
+          </div>
+
+          <div class="card">
+            <h3 style="font-family: var(--font-body); font-size: var(--fs-base); margin-bottom: var(--space-4);">
+              Resumo clínico
+            </h3>
+            ${lastScreening ? `
+              <div style="margin-bottom: var(--space-4);">
+                <div class="text-small text-muted" style="margin-bottom: var(--space-2);">Última triagem</div>
+                ${priorityBadge(lastScreening.priority)}
+                <div style="margin-top: var(--space-3); font-size: var(--fs-sm);">
+                  <div>Score: <strong>${Number(lastScreening.score || 0).toFixed(2)}</strong>
+                       (limiar ${Number(lastScreening.threshold_applied || 0).toFixed(2)})</div>
+                  <div style="margin-top: var(--space-1);">
+                    Recomendação: <strong>${recommendationLabel(lastScreening.recommendation)}</strong>
+                  </div>
+                  <div class="text-small text-muted" style="margin-top: var(--space-2);">
+                    Enviada em ${formatDateBR(lastScreening.submitted_at)}
+                  </div>
+                </div>
+              </div>
+            ` : '<div class="text-small text-muted">Sem triagens.</div>'}
+
+            <div style="border-top: 1px solid var(--color-border); padding-top: var(--space-3);">
+              <div class="text-small text-muted" style="margin-bottom: var(--space-2);">Exames</div>
+              ${lastExam ? `
+                <div style="font-size: var(--fs-sm);">
+                  <strong>${lastExam.exam_type === 'pcr' ? 'PCR' : 'Southern Blotting'}</strong> —
+                  <span class="answer-pill ${lastExam.result === 'positive' ? 'yes' : (lastExam.result === 'negative' ? 'no' : 'unknown')}">
+                    ${lastExam.result === 'positive' ? 'Positivo' : (lastExam.result === 'negative' ? 'Negativo' : 'Inconclusivo')}
+                  </span>
+                  <div class="text-small text-muted" style="margin-top: var(--space-1);">
+                    ${formatDateOnly(lastExam.exam_date)}
+                  </div>
+                </div>
+              ` : '<div class="text-small text-muted">Nenhum exame registrado.</div>'}
+            </div>
+          </div>
+        </div>
+
+        ${renderUploadsCard(uploads)}
+        ${renderSocioeconomicCard(socio)}
+      `;
+    }
+
+    function renderUploadsCard(uploads) {
+      const byKind = {};
+      (uploads || []).forEach(u => { if (!byKind[u.kind]) byKind[u.kind] = u; });
+      const labels = {
+        photo_front:     'Foto de frente',
+        photo_side:      'Foto de perfil',
+        medical_request: 'Requisição médica',
+      };
+      const order = ['photo_front', 'photo_side', 'medical_request'];
+
+      return `
+        <div class="card" style="margin-top: var(--space-4);">
+          <h3 style="font-family: var(--font-body); font-size: var(--fs-base); margin-bottom: var(--space-4);">
+            Anexos enviados pelo paciente
+          </h3>
+          <div class="grid gap-3" style="grid-template-columns: repeat(3, 1fr);">
+            ${order.map(kind => {
+              const u = byKind[kind];
+              if (!u) {
+                return `
+                  <div style="padding: var(--space-3); border: 1px dashed var(--color-border); border-radius: 8px;">
+                    <div class="text-small text-muted">${labels[kind]}</div>
+                    <div class="text-small" style="margin-top: var(--space-1); color: var(--color-text-muted);">— não enviado —</div>
+                  </div>
+                `;
+              }
+              const url = `/sgx/backend/api/uploads/get.php?id=${u.id}`;
+              const isImg = u.mime_type && u.mime_type.startsWith('image/');
+              return `
+                <div style="padding: var(--space-3); border: 1px solid var(--color-border); border-radius: 8px;">
+                  <div class="text-small text-muted">${labels[kind]}</div>
+                  <div style="margin-top: var(--space-2);">
+                    ${ isImg
+                      ? `<a href="${url}" target="_blank" rel="noopener">
+                          <img src="${url}" alt="${labels[kind]}" style="width: 100%; max-height: 160px; object-fit: cover; border-radius: 6px;" />
+                         </a>`
+                      : `<a href="${url}" target="_blank" rel="noopener" class="btn btn-ghost" style="display: inline-block;">
+                          📄 Abrir ${escapeHtmlGlobal(u.original_name)}
+                         </a>` }
+                  </div>
+                  <div class="text-small text-muted" style="margin-top: var(--space-2);">
+                    ${escapeHtmlGlobal(u.original_name)}<br>
+                    ${formatDateBR(u.created_at)} · ${Math.round((u.size_bytes || 0) / 1024)} KB
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    function renderSocioeconomicCard(socio) {
+      if (!socio) {
+        return `
+          <div class="card" style="margin-top: var(--space-4);">
+            <h3 style="font-family: var(--font-body); font-size: var(--fs-base); margin-bottom: var(--space-3);">
+              Triagem socioeconômica
+            </h3>
+            <p class="text-small text-muted">Não preenchida.</p>
+          </div>
+        `;
+      }
+
+      const incomeLabels = {
+        up_to_1: 'Até 1 salário mínimo',
+        '1_to_2': 'De 1 a 2 salários',
+        '2_to_3': 'De 2 a 3 salários',
+        above_3: 'Mais de 3 salários',
+      };
+      const workLabels = {
+        formal: 'Emprego formal', informal: 'Trabalho informal/autônomo',
+        unemployed: 'Desempregado(a)', retired: 'Aposentado(a)/pensionista',
+      };
+      const eduLabels = {
+        fundamental_incomplete: 'Fundamental incompleto', fundamental_complete: 'Fundamental completo',
+        high_school_incomplete: 'Médio incompleto',       high_school_complete: 'Médio completo',
+        higher_incomplete:      'Superior incompleto',    higher_complete:      'Superior completo',
+        postgrad_incomplete:    'Pós-graduação incompleta', postgrad_complete:  'Pós-graduação completa',
+      };
+
+      const perCap = socio.per_capita_est_sm;
+      const perCapTxt = perCap !== null && perCap !== undefined
+        ? `${perCap.toFixed(2)} salário(s) mínimo(s) per capita (estimativa)`
+        : '—';
+
+      return `
+        <div class="card" style="margin-top: var(--space-4);">
+          <h3 style="font-family: var(--font-body); font-size: var(--fs-base); margin-bottom: var(--space-4);">
+            Triagem socioeconômica
+          </h3>
+          <dl class="def-list">
+            <dt>Pessoas na casa</dt>          <dd>${escapeHtmlGlobal(socio.household_size)}</dd>
+            <dt>Renda da família</dt>         <dd>${escapeHtmlGlobal(incomeLabels[socio.income_range] || '—')}</dd>
+            <dt>Benefício social</dt>         <dd>${socio.receives_benefit ? ('Sim' + (socio.benefit_details ? ' — ' + escapeHtmlGlobal(socio.benefit_details) : '')) : 'Não'}</dd>
+            <dt>Trabalho do provedor</dt>     <dd>${escapeHtmlGlobal(workLabels[socio.provider_work_status] || '—')}</dd>
+            <dt>Plano de saúde</dt>           <dd>${socio.has_health_plan ? 'Sim' : 'Não'}</dd>
+            <dt>Escolaridade do provedor</dt> <dd>${escapeHtmlGlobal(eduLabels[socio.provider_education] || '—')}</dd>
+            <dt>Renda per capita</dt>         <dd>${perCapTxt}</dd>
+            ${socio.observations ? `
+              <dt>Observações</dt>            <dd style="white-space: pre-wrap;">${escapeHtmlGlobal(socio.observations)}</dd>
+            ` : ''}
+          </dl>
+          <p class="text-small text-muted" style="margin-top: var(--space-3);">
+            Esses dados servem para a equipe clínica conhecer o contexto da família.
+            A decisão sobre apoio é sempre manual — o sistema não decide nada automaticamente.
+          </p>
+        </div>
+      `;
+    }
+
+    // Estado da edição de indicadores (uma só por vez)
+    let indicatorsEditMode = false;
+    let editedAnswers = {}; // { indicator_id: { answer, observation } }
+
+    function renderIndicators(s) {
+      const cats = s.answers_by_category;
+      const labels = { development: 'Desenvolvimento', behavioral: 'Comportamento', physical: 'Características físicas' };
+      const ansLabel = { yes: 'Sim', no: 'Não', unknown: 'Não sei' };
+
+      const user = api.getUser();
+      // Só doctor/admin podem editar. E só se for a triagem mais recente
+      // (ou seja, sem ?screening= explícito, ou explicitamente == mais recente).
+      const isLatest = !screeningId || (patientData?.screenings?.[0]?.id === s.screening.id);
+      const canEdit = !viewMode && isLatest &&
+        (user?.role === 'doctor' || user?.role === 'admin');
+
+      // Botão de toggle de edição
+      let header = '';
+      if (canEdit) {
+        header = `
+          <div style="display: flex; justify-content: flex-end; margin-bottom: var(--space-3); gap: var(--space-2);">
+            ${ indicatorsEditMode ? `
+              <button class="btn btn-ghost" onclick="cancelEditIndicators()">Cancelar</button>
+              <button class="btn btn-primary" onclick="saveEditIndicators(${s.screening.id})">Salvar alterações</button>
+            ` : `
+              <button class="btn btn-secondary" onclick="startEditIndicators()">✎ Editar respostas</button>
+            `}
+          </div>
+        `;
+      }
+
+      // Lista de indicadores
+      let html = '<div class="indicator-summary">';
+      Object.entries(cats).forEach(([cat, items]) => {
+        if (items.length === 0) return;
+        html += `<div class="indicator-cat">
+          <h4>${labels[cat]}</h4>`;
+        items.forEach(i => {
+          if (indicatorsEditMode) {
+            // Pega o valor editado (se já mexeu) ou o original
+            const current = editedAnswers[i.indicator_id]
+              ? editedAnswers[i.indicator_id].answer
+              : i.answer;
+            html += `
+              <div class="indicator-row" style="flex-wrap: wrap;">
+                <span class="label" style="flex: 1; min-width: 220px;">${escapeHtmlGlobal(i.lay_label)}</span>
+                <span style="display: flex; gap: 4px;">
+                  ${['yes','no','unknown'].map(opt => `
+                    <label style="cursor: pointer; padding: 4px 10px;
+                                  border: 1px solid var(--color-border); border-radius: 6px;
+                                  ${current === opt ? 'background: var(--color-primary, #5b3a92); color: white; border-color: var(--color-primary, #5b3a92);' : 'background: white;'}">
+                      <input type="radio" name="ind-${i.indicator_id}" value="${opt}"
+                             ${current === opt ? 'checked' : ''}
+                             onchange="onAnswerChange(${i.indicator_id}, '${opt}')"
+                             style="display: none;">
+                      ${ansLabel[opt]}
+                    </label>
+                  `).join('')}
+                </span>
+              </div>`;
+          } else {
+            html += `<div class="indicator-row">
+              <span class="label">${escapeHtmlGlobal(i.lay_label)}</span>
+              <span class="answer-pill ${i.answer}">${ansLabel[i.answer]}</span>
+            </div>`;
+          }
+        });
+        html += '</div>';
+      });
+      html += '</div>';
+
+      // Aviso no modo edição
+      const editNotice = indicatorsEditMode
+        ? `<div class="card" style="background: #fff7e6; border: 1px solid #f0b95a; margin-bottom: var(--space-4); padding: var(--space-3);">
+            <strong>Modo de edição.</strong> Ajuste as respostas e clique em "Salvar alterações".
+            O score e a prioridade serão recalculados automaticamente.
+          </div>`
+        : '';
+
+      // Resumo do score (não aparece em modo edição pra evitar confusão de valores antigos)
+      const scoreCard = indicatorsEditMode ? '' : `
+        <div class="card" style="margin-bottom: var(--space-4);">
+          <div class="grid gap-4" style="grid-template-columns: repeat(4, 1fr);">
+            <div>
+              <div class="text-small text-muted">Score calculado</div>
+              <div style="font-family: var(--font-display); font-size: var(--fs-3xl); font-weight: 500;">
+                ${Number(s.screening.score).toFixed(3)}
+              </div>
+            </div>
+            <div>
+              <div class="text-small text-muted">Limiar (${s.screening.patient_sex})</div>
+              <div style="font-family: var(--font-display); font-size: var(--fs-2xl); font-weight: 500;">
+                ${Number(s.screening.threshold_applied).toFixed(3)}
+              </div>
+            </div>
+            <div>
+              <div class="text-small text-muted">Prioridade</div>
+              <div style="margin-top: var(--space-2);">${priorityBadge(s.screening.priority)}</div>
+            </div>
+            <div>
+              <div class="text-small text-muted">Recomendação</div>
+              <div style="font-weight: 600; margin-top: var(--space-2);">
+                ${recommendationLabel(s.screening.recommendation)}
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+
+      document.getElementById('tab-indicators').innerHTML = header + editNotice + scoreCard + html;
+    }
+
+    /* ===== Edição de respostas (handlers globais) ===== */
+    function startEditIndicators() {
+      indicatorsEditMode = true;
+      editedAnswers = {};
+      renderIndicators(screeningDetail);
+    }
+    function cancelEditIndicators() {
+      indicatorsEditMode = false;
+      editedAnswers = {};
+      renderIndicators(screeningDetail);
+    }
+    function onAnswerChange(indicatorId, newAnswer) {
+      editedAnswers[indicatorId] = { answer: newAnswer };
+      // Re-render só os botões (pra atualizar o "selected" visual)
+      renderIndicators(screeningDetail);
+    }
+    async function saveEditIndicators(screeningIdToSave) {
+      const changedIds = Object.keys(editedAnswers).map(Number);
+      if (changedIds.length === 0) {
+        // Saiu do modo edição sem mudar nada
+        indicatorsEditMode = false;
+        renderIndicators(screeningDetail);
+        return;
+      }
+
+      if (!confirm(`Você alterou ${changedIds.length} resposta(s). O score e a prioridade serão recalculados automaticamente.\n\nConfirmar?`)) {
+        return;
+      }
+
+      // Monta payload com as respostas alteradas (e mantém observation existente)
+      const allAnswers = [];
+      Object.values(screeningDetail.answers_by_category).flat().forEach(i => {
+        if (editedAnswers[i.indicator_id]) {
+          allAnswers.push({
+            indicator_id: i.indicator_id,
+            answer: editedAnswers[i.indicator_id].answer,
+            observation: i.observation || null,
+          });
+        }
+      });
+
+      try {
+        const res = await api.post('/screenings/edit-answers', {
+          screening_id: screeningIdToSave,
+          answers: allAnswers,
+        });
+        if (res.changed) {
+          const priorityChanged = res.old_priority !== res.new_priority;
+          toast.success(
+            `Respostas salvas. Score: ${Number(res.old_score).toFixed(3)} → ${Number(res.new_score).toFixed(3)}`
+            + (priorityChanged ? ` (prioridade mudou: ${res.old_priority} → ${res.new_priority})` : '')
+          );
+        } else {
+          toast.success('Nenhuma alteração feita.');
+        }
+        indicatorsEditMode = false;
+        editedAnswers = {};
+        // Recarrega tudo pra refletir o novo score
+        loadAll();
+      } catch (err) {
+        toast.error(err.message || 'Erro ao salvar.');
+      }
+    }
+
+    function renderHistory(screenings) {
+      const appts = patientData.appointments || [];
+
+      let html = '';
+
+      // Seção: Consultas
+      html += '<h3 style="font-family: var(--font-display); font-size: var(--fs-xl); margin: 0 0 var(--space-3) 0;">Consultas</h3>';
+      if (appts.length === 0) {
+        html += '<div class="empty-state" style="margin-bottom: var(--space-5);"><div class="icon">📅</div>Nenhuma consulta agendada.</div>';
+      } else {
+        const STATUS_BADGES = {
+          scheduled: '<span class="badge badge-info">Agendada</span>',
+          completed: '<span class="answer-pill no">Realizada</span>',
+          cancelled: '<span class="answer-pill yes">Cancelada</span>',
+          no_show:   '<span class="answer-pill unknown">Não compareceu</span>',
+        };
+        html += `<div class="history-list" style="margin-bottom: var(--space-5);">`
+          + appts.map(a => `
+            <div class="history-item">
+              <div>
+                <div class="history-date">${formatDateBR(a.scheduled_at)}</div>
+                <div style="font-weight: 600; margin-bottom: var(--space-1);">
+                  Consulta ${a.doctor_name ? 'com ' + escapeHtmlGlobal(a.doctor_name) : ''}
+                </div>
+                <div class="text-small text-muted">
+                  ${a.location ? escapeHtmlGlobal(a.location) : 'Local não informado'}
+                  ${a.notes ? ' · ' + escapeHtmlGlobal(a.notes) : ''}
+                </div>
+              </div>
+              <div style="text-align: right;">
+                ${STATUS_BADGES[a.status] || a.status}
+              </div>
+            </div>
+          `).join('') + '</div>';
+      }
+
+      // Seção: Triagens
+      html += '<h3 style="font-family: var(--font-display); font-size: var(--fs-xl); margin: 0 0 var(--space-3) 0;">Triagens</h3>';
+      if (screenings.length === 0) {
+        html += '<div class="empty-state"><div class="icon">📋</div>Sem triagens ainda.</div>';
+      } else {
+        html += `<div class="history-list">` + screenings.map(s => `
+          <div class="history-item ${s.priority || ''}" onclick="location.href='patient-detail.html?id=${patientId}&screening=${s.id}'">
+            <div>
+              <div class="history-date">${formatDateBR(s.submitted_at || s.created_at)}</div>
+              <div style="font-weight: 600; margin-bottom: var(--space-1);">
+                Triagem #${s.id}
+              </div>
+              <div class="text-small text-muted">
+                Score: ${Number(s.score || 0).toFixed(2)} ·
+                ${recommendationLabel(s.recommendation)} ·
+                ${statusLabel(s.status)}
+              </div>
+            </div>
+            <div style="text-align: right;">
+              ${priorityBadge(s.priority)}
+              ${s.performed_by ? `<div class="text-small text-muted" style="margin-top: var(--space-2);">por ${escapeHtmlGlobal(s.performed_by)}</div>` : ''}
+            </div>
+          </div>
+        `).join('') + '</div>';
+      }
+
+      document.getElementById('tab-history').innerHTML = html;
+    }
+
+    function renderExams(exams) {
+      const user = api.getUser();
+      const canAdd = user.role === 'doctor' && !viewMode;
+
+      if (exams.length === 0) {
+        document.getElementById('tab-exams').innerHTML = `
+          <div class="empty-state">
+            <div class="icon">🧬</div>
+            <div>Nenhum exame molecular registrado.</div>
+            ${canAdd ? `<div style="margin-top: var(--space-4);">
+              <button class="btn btn-primary" onclick="openExamModal()">+ Registrar exame</button>
+            </div>` : ''}
+          </div>
+        `;
+        return;
+      }
+
+      const examTypeLabel = { pcr: 'PCR', southern_blotting: 'Southern Blotting' };
+      const resultLabel = { positive: 'Positivo', negative: 'Negativo', inconclusive: 'Inconclusivo' };
+      const resultClass = { positive: 'yes', negative: 'no', inconclusive: 'unknown' };
+
+      document.getElementById('tab-exams').innerHTML = `
+        ${canAdd ? `<div style="margin-bottom: var(--space-4);">
+          <button class="btn btn-primary" onclick="openExamModal()">+ Registrar novo exame</button>
+        </div>` : ''}
+        <div class="table-wrapper">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Tipo</th>
+                <th>Data</th>
+                <th>Resultado</th>
+                <th>Laboratório</th>
+                <th>Registrado por</th>
+                <th>Observações</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${exams.map(e => `
+                <tr>
+                  <td><strong>${examTypeLabel[e.exam_type]}</strong></td>
+                  <td>${formatDateOnly(e.exam_date)}</td>
+                  <td><span class="answer-pill ${resultClass[e.result]}">${resultLabel[e.result]}</span></td>
+                  <td>${escapeHtmlGlobal(e.laboratory || '—')}</td>
+                  <td class="text-small">${escapeHtmlGlobal(e.registered_by)}</td>
+                  <td class="text-small text-muted">${escapeHtmlGlobal(e.notes || '—')}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    function renderNotes(screening) {
+      if (!screening) {
+        document.getElementById('tab-notes').innerHTML =
+          '<div class="empty-state"><div class="icon">📝</div>Selecione uma triagem.</div>';
+        return;
+      }
+
+      // Modo somente leitura — só mostra o que tem, sem campos editáveis
+      if (viewMode) {
+        const hasNotes = !!(screening.clinical_notes && screening.clinical_notes.trim());
+        document.getElementById('tab-notes').innerHTML = `
+          <div class="card">
+            <h3 style="font-family: var(--font-body); font-size: var(--fs-base); margin-bottom: var(--space-3);">
+              Anotações clínicas — Triagem #${screening.id}
+            </h3>
+            ${hasNotes ? `
+              <div style="white-space: pre-wrap; line-height: var(--lh-normal); padding: var(--space-3); background: var(--color-bg-subtle); border-radius: var(--radius); border-left: 4px solid var(--color-primary);">
+                ${escapeHtmlGlobal(screening.clinical_notes)}
+              </div>
+              <div class="text-small text-muted" style="margin-top: var(--space-3);">
+                ${screening.include_notes_in_report ? '✓ Incluído no relatório do paciente' : '🔒 Anotação privada (não visível ao paciente)'}
+              </div>
+            ` : `
+              <div class="empty-state" style="padding: var(--space-4);">
+                <div class="icon">📝</div>
+                <div>Sem anotações registradas para esta triagem.</div>
+                <div class="text-small text-muted" style="margin-top: var(--space-2);">
+                  Para registrar anotações, abra o paciente pela aba "Minhas consultas".
+                </div>
+              </div>
+            `}
+          </div>
+        `;
+        return;
+      }
+
+      // Modo completo — formulário editável
+      document.getElementById('tab-notes').innerHTML = `
+        <div class="card">
+          <h3 style="font-family: var(--font-body); font-size: var(--fs-base); margin-bottom: var(--space-3);">
+            Anotações clínicas — Triagem #${screening.id}
+          </h3>
+          <div class="field">
+            <label for="notes">Observações</label>
+            <textarea class="textarea" id="notes" rows="6" placeholder="Registre observações pertinentes ao caso...">${escapeHtmlGlobal(screening.clinical_notes || '')}</textarea>
+            <span class="help">Apenas profissionais visualizam essas notas.</span>
+          </div>
+          <div class="field" style="flex-direction: row; align-items: center; gap: var(--space-3);">
+            <input type="checkbox" id="include-report" ${screening.include_notes_in_report ? 'checked' : ''}>
+            <label for="include-report" style="font-weight: 400; font-size: var(--fs-sm); margin: 0;">
+              Incluir essas anotações no relatório PDF
+            </label>
+          </div>
+          <div class="flex gap-3" style="margin-top: var(--space-4);">
+            <button class="btn btn-primary" onclick="saveNotes()">Salvar anotações</button>
+            <button class="btn btn-secondary" onclick="reviewAndFinish()">Revisar e finalizar consulta</button>
+          </div>
+          <p class="text-small text-muted" style="margin-top: var(--space-3);">
+            "Revisar e finalizar consulta" exige uma anotação clínica preenchida.
+            Se houver consulta agendada para hoje, ela é marcada como realizada
+            automaticamente.
+          </p>
+        </div>
+      `;
+    }
+
+    async function saveNotes() {
+      try {
+        await api.post('/screenings/review', {
+          id: screeningDetail.screening.id,
+          clinical_notes: document.getElementById('notes').value,
+          include_notes_in_report: document.getElementById('include-report').checked,
+        });
+        toast.success('Anotações salvas.');
+      } catch (err) {
+        toast.error(err.message);
+      }
+    }
+
+    async function reviewAndFinish() {
+      const notes = (document.getElementById('notes').value || '').trim();
+      if (notes.length === 0) {
+        toast.error('Preencha uma anotação clínica antes de finalizar.');
+        // foca no textarea
+        const ta = document.getElementById('notes');
+        if (ta) ta.focus();
+        return;
+      }
+
+      // Tem consulta de hoje pra finalizar?
+      const todayApt = findTodayAppointment();
+      const apptMsg = todayApt
+        ? '\n\nA consulta de hoje será marcada como REALIZADA.'
+        : '\n\n(Nenhuma consulta agendada para hoje — só a triagem será revisada.)';
+      if (!confirm('Confirmar revisão da triagem e finalização da consulta?' + apptMsg)) return;
+
+      try {
+        // 1) Revisa a triagem
+        await api.post('/screenings/review', {
+          id: screeningDetail.screening.id,
+          status: 'reviewed',
+          clinical_notes: notes,
+          include_notes_in_report: document.getElementById('include-report').checked,
+        });
+
+        // 2) Finaliza a consulta de hoje, se houver
+        if (todayApt) {
+          try {
+            await api.post('/appointments/update', {
+              id: todayApt.id,
+              status: 'completed',
+            });
+          } catch (err) {
+            // Triagem já foi revisada — avisa mas não desfaz
+            toast.error('Triagem revisada, mas não foi possível finalizar a consulta: ' + (err.message || ''));
+            setTimeout(() => location.reload(), 1500);
+            return;
+          }
+        }
+
+        toast.success(todayApt
+          ? 'Triagem revisada e consulta finalizada.'
+          : 'Triagem revisada.');
+        setTimeout(() => location.reload(), 800);
+      } catch (err) {
+        toast.error(err.message);
+      }
+    }
+
+    /* ====== Tabs ====== */
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+      });
+    });
+
+    /* ====== Modal de exame ====== */
+    function openExamModal() {
+      document.getElementById('exam-modal').style.display = 'grid';
+      document.getElementById('exam-date').value = new Date().toISOString().slice(0, 10);
+    }
+    function closeExamModal() {
+      document.getElementById('exam-modal').style.display = 'none';
+    }
+    async function submitExam() {
+      const btn = document.getElementById('btn-submit-exam');
+      btn.disabled = true;
+      btn.textContent = 'Enviando...';
+      try {
+        const payload = {
+          patient_id:   patientId,
+          screening_id: screeningDetail?.screening?.id || null,
+          exam_type:    document.getElementById('exam-type').value,
+          exam_date:    document.getElementById('exam-date').value,
+          result:       document.getElementById('exam-result').value,
+          laboratory:   document.getElementById('exam-lab').value,
+          notes:        document.getElementById('exam-notes').value,
+        };
+        if (!payload.result) {
+          toast.error('Selecione o resultado do exame.');
+          btn.disabled = false;
+          btn.textContent = 'Registrar exame';
+          return;
+        }
+        await api.post('/exams/register', payload);
+        toast.success('Exame registrado com sucesso.');
+        closeExamModal();
+        setTimeout(() => location.reload(), 800);
+      } catch (err) {
+        btn.disabled = false;
+        btn.textContent = 'Registrar exame';
+        toast.error(err.message);
+      }
+    }
+
+    loadAll();
+  </script>
+</body>
+</html>

@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Calendário — Recepção · SGX</title>
+  <link rel="stylesheet" href="../assets/css/base.css">
+  <link rel="stylesheet" href="../assets/css/dashboard.css">
+  <style>
+    .cal-page-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+      gap: var(--space-5);
+      align-items: start;
+    }
+    @media (max-width: 1100px) {
+      .cal-page-grid { grid-template-columns: 1fr; }
+    }
+
+    .cal-card, .day-card {
+      background: white;
+      border-radius: 12px;
+      padding: var(--space-4);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    }
+
+    .cal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: var(--space-4);
+      flex-wrap: wrap;
+      gap: var(--space-3);
+    }
+    .cal-header h3 {
+      font-family: var(--font-body);
+      margin: 0;
+      font-size: var(--fs-lg);
+      text-transform: capitalize;
+    }
+    .cal-nav-buttons { display: flex; gap: var(--space-2); }
+    .cal-nav-buttons button {
+      background: transparent;
+      border: 1px solid var(--color-border);
+      border-radius: 8px;
+      padding: var(--space-2) var(--space-3);
+      cursor: pointer;
+      font-size: var(--fs-base);
+    }
+    .cal-nav-buttons button:hover:not(:disabled) {
+      background: var(--color-bg-soft, #f5f7fa);
+    }
+
+    .cal-filter {
+      display: flex; gap: var(--space-2); align-items: center;
+      font-size: var(--fs-sm);
+    }
+    .cal-filter select {
+      padding: var(--space-2);
+      border: 1px solid var(--color-border);
+      border-radius: 6px;
+      background: white;
+      font-size: var(--fs-sm);
+    }
+
+    .cal-grid {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 6px;
+    }
+    .cal-dow {
+      text-align: center;
+      font-size: var(--fs-sm);
+      color: var(--color-text-muted);
+      font-weight: 600;
+      padding: var(--space-2) 0;
+    }
+    .cal-day {
+      min-height: 70px;
+      background: var(--color-bg-soft, #f5f7fa);
+      border-radius: 8px;
+      padding: 6px;
+      cursor: pointer;
+      border: 2px solid transparent;
+      display: flex;
+      flex-direction: column;
+      transition: all 0.15s;
+    }
+    .cal-day:hover:not(.empty):not(.weekend) {
+      background: white;
+      border-color: var(--color-primary, #5b3a92);
+    }
+    .cal-day.empty { background: transparent; cursor: default; }
+    .cal-day.weekend { opacity: 0.5; cursor: default; }
+    .cal-day.today { border-color: var(--color-primary, #5b3a92); }
+    .cal-day.selected {
+      background: var(--color-primary, #5b3a92);
+      color: white;
+      border-color: var(--color-primary, #5b3a92);
+    }
+    .cal-day.selected .cal-count { color: white; opacity: 0.9; }
+
+    .cal-day-num { font-size: var(--fs-base); font-weight: 600; }
+    .cal-counts {
+      display: flex; flex-direction: column; gap: 2px;
+      margin-top: auto;
+      font-size: 11px;
+      line-height: 1.2;
+    }
+    .cal-count { color: var(--color-text-muted); }
+    .cal-count strong { color: inherit; }
+
+    /* Painel do dia */
+    .day-card h3 {
+      font-family: var(--font-body);
+      margin: 0 0 var(--space-3);
+      font-size: var(--fs-lg);
+      text-transform: capitalize;
+    }
+    .day-list {
+      display: flex; flex-direction: column; gap: var(--space-2);
+    }
+    .appt-row {
+      display: grid;
+      grid-template-columns: 60px 1fr auto;
+      gap: var(--space-3);
+      align-items: center;
+      padding: var(--space-3);
+      background: var(--color-bg-soft, #f5f7fa);
+      border-radius: 8px;
+      border-left: 3px solid var(--color-border);
+    }
+    .appt-row.status-scheduled { border-left-color: var(--color-primary, #5b3a92); }
+    .appt-row.status-completed { border-left-color: #2a7a3e; }
+    .appt-row.status-cancelled { border-left-color: #9ca3af; opacity: 0.6; }
+    .appt-row.status-no_show   { border-left-color: #c5392f; }
+
+    .appt-time { font-weight: 600; font-size: var(--fs-base); }
+    .appt-info { min-width: 0; }
+    .appt-info a {
+      display: block;
+      font-weight: 600;
+      color: var(--color-text, inherit);
+      text-decoration: none;
+      margin-bottom: 2px;
+    }
+    .appt-info a:hover { text-decoration: underline; color: var(--color-primary, #5b3a92); }
+    .appt-info-meta {
+      font-size: var(--fs-sm);
+      color: var(--color-text-muted);
+      display: flex;
+      gap: var(--space-2);
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .appt-actions {
+      display: flex; flex-direction: column; gap: 4px; align-items: stretch;
+    }
+    .appt-actions button {
+      background: transparent;
+      border: 1px solid var(--color-border);
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .appt-actions button:hover { background: white; }
+
+    .pill {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .pill.priority-high   { background: #fde2e1; color: #8a1d1f; }
+    .pill.priority-medium { background: #fef3cd; color: #6b4f00; }
+    .pill.priority-low    { background: #dcecf6; color: #1e4a6b; }
+    .pill.status-scheduled { background: #ede7f6; color: #4a2a82; }
+    .pill.status-completed { background: #dcefe2; color: #1e5a30; }
+    .pill.status-cancelled { background: #e9ecef; color: #495057; }
+    .pill.status-no_show   { background: #fde2e1; color: #8a1d1f; }
+
+    /* Modal de edição */
+    .modal-overlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.4);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 1000;
+      padding: var(--space-4);
+    }
+    .modal {
+      background: white;
+      border-radius: 12px;
+      padding: var(--space-5);
+      max-width: 480px;
+      width: 100%;
+      max-height: 90vh;
+      overflow-y: auto;
+    }
+    .modal h3 { margin: 0 0 var(--space-3); font-family: var(--font-body); }
+    .modal .field { margin-bottom: var(--space-3); }
+    .modal .field label {
+      display: block; font-size: var(--fs-sm); font-weight: 600;
+      margin-bottom: 4px;
+    }
+    .modal .field input, .modal .field select, .modal .field textarea {
+      width: 100%;
+      padding: var(--space-2);
+      border: 1px solid var(--color-border);
+      border-radius: 6px;
+      font-size: var(--fs-base);
+      font-family: inherit;
+    }
+    .modal-actions {
+      display: flex; gap: var(--space-2); justify-content: flex-end;
+      margin-top: var(--space-4);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="dash" id="dash-root">
+    <main class="dash-main">
+
+      <header class="dash-header">
+        <div>
+          <h1 class="dash-title">Calendário de consultas</h1>
+          <p class="dash-subtitle">Clique em um dia para ver as consultas agendadas. Use o filtro pra ver só uma profissional.</p>
+        </div>
+        <div>
+          <a href="reception-schedule.html" class="btn btn-primary">+ Agendar consulta</a>
+        </div>
+      </header>
+
+      <div class="cal-page-grid" id="content">
+        <div class="empty-state">Carregando calendário...</div>
+      </div>
+
+    </main>
+  </div>
+
+  <!-- Container do modal de edição -->
+  <div id="modal-container"></div>
+
+  <script src="../assets/js/api.js"></script>
+  <script src="../assets/js/shared.js"></script>
+  <script>
+    if (!requireAuth(['receptionist','admin','doctor','nurse'])) { /* redireciona */ }
+    document.getElementById('dash-root').insertAdjacentHTML('afterbegin', renderSidebar('calendar'));
+
+    const state = {
+      year:  null,
+      month: null,
+      doctorFilter: 0,      // 0 = todos
+      doctors: [],          // lista de profissionais ativos
+      calendar: null,       // resposta do calendar-overview
+      selectedDate: null,
+      dayList: null,        // resposta do appointments/list pra o dia
+      loadingDay: false,
+    };
+
+    /* ===== Init ===== */
+    async function init() {
+      // Lê params da URL (vamos preservar entre navegações)
+      const url = new URL(location.href);
+      const now = new Date();
+      state.year  = parseInt(url.searchParams.get('year'),  10) || now.getFullYear();
+      state.month = parseInt(url.searchParams.get('month'), 10) || (now.getMonth() + 1);
+      state.selectedDate = url.searchParams.get('date') || null;
+      state.doctorFilter = parseInt(url.searchParams.get('doctor'), 10) || 0;
+
+      // Carrega lista de profissionais (pra filtro + dropdown do modal)
+      try {
+        const docs = await api.get('/users/list?role=doctor');
+        state.doctors = docs.filter(d => d.is_active);
+      } catch (e) {
+        toast.error('Não foi possível carregar profissionais.');
+      }
+
+      await loadCalendar();
+      if (state.selectedDate) await loadDay(state.selectedDate);
+      render();
+    }
+
+    /* ===== Carregamento ===== */
+    async function loadCalendar() {
+      try {
+        const q = new URLSearchParams({
+          year: state.year, month: state.month,
+        });
+        if (state.doctorFilter > 0) q.set('doctor', state.doctorFilter);
+        state.calendar = await api.get('/appointments/calendar-overview?' + q);
+      } catch (err) {
+        toast.error('Erro ao carregar calendário: ' + (err.message || ''));
+      }
+    }
+
+    async function loadDay(date) {
+      state.loadingDay = true;
+      state.dayList = null;
+      render();
+      try {
+        const q = new URLSearchParams({ from: date, to: date });
+        if (state.doctorFilter > 0) q.set('doctor', state.doctorFilter);
+        state.dayList = await api.get('/appointments/list?' + q);
+      } catch (err) {
+        toast.error('Erro ao carregar consultas do dia.');
+        state.dayList = [];
+      } finally {
+        state.loadingDay = false;
+        render();
+      }
+    }
+
+    /* ===== Renderização ===== */
+    function render() {
+      const content = document.getElementById('content');
+      content.innerHTML = `
+        <div class="cal-card">
+          ${renderCalendarHtml()}
+        </div>
+        <div class="day-card">
+          ${renderDayHtml()}
+        </div>
+      `;
+      bindEvents();
+      // Atualiza a URL pra preservar estado quando voltar do prontuário
+      updateUrl();
+    }
+
+    function renderCalendarHtml() {
+      const cal = state.calendar;
+      if (!cal) return '<div class="empty-state">Carregando...</div>';
+
+      const monthName = new Date(cal.year, cal.month - 1, 1)
+        .toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+
+      const firstDow = new Date(cal.year, cal.month - 1, 1).getDay();
+      const leadingEmpty = (firstDow + 6) % 7; // grid começa na segunda
+
+      const today = new Date().toISOString().slice(0, 10);
+      const dowLabels = ['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'];
+
+      let html = `
+        <div class="cal-header">
+          <div class="cal-nav-buttons">
+            <button id="cal-prev" aria-label="Mês anterior">←</button>
+            <button id="cal-today">Hoje</button>
+            <button id="cal-next" aria-label="Próximo mês">→</button>
+          </div>
+          <h3>${monthName}</h3>
+          <div class="cal-filter">
+            <label for="cal-doctor-filter">Profissional:</label>
+            <select id="cal-doctor-filter">
+              <option value="0">Todas</option>
+              ${state.doctors.map(d => `
+                <option value="${d.id}" ${state.doctorFilter === d.id ? 'selected' : ''}>
+                  ${escapeHtml(d.full_name)}
+                </option>
+              `).join('')}
+            </select>
+          </div>
+        </div>
+        <div class="cal-grid">
+      `;
+      dowLabels.forEach(d => html += `<div class="cal-dow">${d}</div>`);
+      for (let i = 0; i < leadingEmpty; i++) html += '<div class="cal-day empty"></div>';
+
+      cal.days.forEach(d => {
+        const dayNum = parseInt(d.date.slice(-2), 10);
+        const classes = ['cal-day'];
+        if (d.is_weekend) classes.push('weekend');
+        if (d.date === today) classes.push('today');
+        if (d.date === state.selectedDate) classes.push('selected');
+
+        const totalActive = d.scheduled + d.completed;
+        html += `
+          <div class="${classes.join(' ')}" data-date="${d.date}" data-weekend="${d.is_weekend ? 1 : 0}">
+            <div class="cal-day-num">${dayNum}</div>
+            <div class="cal-counts">
+              ${ totalActive > 0
+                ? `<div class="cal-count"><strong>${totalActive}</strong> ${totalActive === 1 ? 'consulta' : 'consultas'}</div>`
+                : '' }
+              ${ d.cancelled > 0
+                ? `<div class="cal-count">${d.cancelled} cancelada${d.cancelled === 1 ? '' : 's'}</div>`
+                : '' }
+            </div>
+          </div>
+        `;
+      });
+
+      html += '</div>';
+      return html;
+    }
+
+    function renderDayHtml() {
+      if (!state.selectedDate) {
+        return `
+          <div class="empty-state" style="padding: var(--space-6);">
+            <div style="font-size: 2rem; opacity: 0.4;">📅</div>
+            <p class="text-muted" style="margin-top: var(--space-3);">
+              Selecione um dia no calendário pra ver as consultas.
+            </p>
+          </div>
+        `;
+      }
+      if (state.loadingDay) return '<div class="empty-state">Carregando...</div>';
+
+      const dateLabel = new Date(state.selectedDate + 'T00:00:00')
+        .toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' });
+
+      const list = state.dayList || [];
+      if (list.length === 0) {
+        return `
+          <h3>${dateLabel}</h3>
+          <p class="text-small text-muted">Nenhuma consulta agendada neste dia.</p>
+        `;
+      }
+
+      // Ordena por horário
+      list.sort((a, b) => a.scheduled_at.localeCompare(b.scheduled_at));
+
+      return `
+        <h3>${dateLabel}</h3>
+        <p class="text-small text-muted" style="margin-bottom: var(--space-3);">
+          ${list.length} ${list.length === 1 ? 'consulta' : 'consultas'} no dia.
+        </p>
+        <div class="day-list">
+          ${list.map(a => renderApptRow(a)).join('')}
+        </div>
+      `;
+    }
+
+    function renderApptRow(a) {
+      const time = (a.scheduled_at || '').slice(11, 16);
+      const statusLabels = {
+        scheduled: 'Agendada', completed: 'Realizada',
+        cancelled: 'Cancelada', no_show: 'Faltou',
+      };
+      const priorityLabels = { high: 'Alta', medium: 'Média', low: 'Baixa' };
+
+      const backParams = new URLSearchParams({
+        back: 'calendario', year: state.year, month: state.month,
+        date: state.selectedDate,
+      });
+      if (state.doctorFilter > 0) backParams.set('doctor', state.doctorFilter);
+      const patientUrl = `patient-detail.html?id=${a.patient_id}&${backParams.toString()}`;
+
+      const canEdit = a.status === 'scheduled';
+      const hasLink = a.meeting_link && a.meeting_link.trim() !== '';
+      return `
+        <div class="appt-row status-${a.status}">
+          <div class="appt-time">${time}</div>
+          <div class="appt-info">
+            <a href="${patientUrl}">${escapeHtml(a.patient_name)}</a>
+            <div class="appt-info-meta">
+              <span>Com ${escapeHtml(a.doctor_name)}</span>
+              <span class="pill status-${a.status}">${statusLabels[a.status] || a.status}</span>
+              ${ a.last_screening_priority ? `
+                <span class="pill priority-${a.last_screening_priority}">
+                  ${priorityLabels[a.last_screening_priority]}
+                </span>
+              ` : '' }
+              ${ canEdit ? (hasLink
+                  ? `<span title="Link da reunião cadastrado" style="color: #2a7a3e;">🎥 com link</span>`
+                  : `<span title="Sem link da reunião ainda" style="color: #c87f0a;">⚠️ sem link</span>`
+                ) : '' }
+            </div>
+          </div>
+          <div class="appt-actions">
+            ${ canEdit ? `<button onclick="openEditModal(${a.id})">${hasLink ? 'Editar' : 'Editar / + Link'}</button>` : '' }
+            ${ canEdit ? `<button onclick="cancelAppt(${a.id})">Cancelar</button>` : '' }
+          </div>
+        </div>
+      `;
+    }
+
+    /* ===== Eventos ===== */
+    function bindEvents() {
+      const prev = document.getElementById('cal-prev');
+      const next = document.getElementById('cal-next');
+      const td   = document.getElementById('cal-today');
+      const flt  = document.getElementById('cal-doctor-filter');
+      if (prev) prev.onclick = () => navigate(-1);
+      if (next) next.onclick = () => navigate(1);
+      if (td)   td.onclick   = () => goToToday();
+      if (flt)  flt.onchange = (e) => changeDoctorFilter(parseInt(e.target.value, 10));
+
+      document.querySelectorAll('.cal-day[data-date]').forEach(el => {
+        el.onclick = () => {
+          if (el.dataset.weekend === '1') return;
+          state.selectedDate = el.dataset.date;
+          loadDay(state.selectedDate);
+        };
+      });
+    }
+
+    async function navigate(delta) {
+      const dt = new Date(state.year, state.month - 1 + delta, 1);
+      state.year  = dt.getFullYear();
+      state.month = dt.getMonth() + 1;
+      // Se a data selecionada não pertence mais ao mês, descarta
+      if (state.selectedDate && !state.selectedDate.startsWith(`${state.year}-${String(state.month).padStart(2,'0')}`)) {
+        state.selectedDate = null;
+        state.dayList = null;
+      }
+      await loadCalendar();
+      render();
+    }
+
+    async function goToToday() {
+      const now = new Date();
+      state.year  = now.getFullYear();
+      state.month = now.getMonth() + 1;
+      const today = now.toISOString().slice(0,10);
+      state.selectedDate = today;
+      await loadCalendar();
+      await loadDay(today);
+    }
+
+    async function changeDoctorFilter(id) {
+      state.doctorFilter = id;
+      await loadCalendar();
+      if (state.selectedDate) await loadDay(state.selectedDate);
+      render();
+    }
+
+    function updateUrl() {
+      const params = new URLSearchParams({
+        year: state.year, month: state.month,
+      });
+      if (state.selectedDate)     params.set('date', state.selectedDate);
+      if (state.doctorFilter > 0) params.set('doctor', state.doctorFilter);
+      history.replaceState(null, '', '?' + params.toString());
+    }
+
+    /* ===== Modal de edição ===== */
+    function openEditModal(apptId) {
+      const a = (state.dayList || []).find(x => x.id === apptId);
+      if (!a) return;
+
+      const time = (a.scheduled_at || '').slice(11, 16);
+      const date = (a.scheduled_at || '').slice(0, 10);
+
+      document.getElementById('modal-container').innerHTML = `
+        <div class="modal-overlay" id="modal-overlay">
+          <div class="modal">
+            <h3>Editar consulta</h3>
+            <p class="text-small text-muted" style="margin-bottom: var(--space-3);">
+              ${escapeHtml(a.patient_name)}
+            </p>
+
+            <div class="field">
+              <label for="edit-date">Data</label>
+              <input id="edit-date" type="date" value="${date}" min="${new Date().toISOString().slice(0,10)}">
+            </div>
+
+            <div class="field">
+              <label for="edit-time">Horário</label>
+              <select id="edit-time">
+                ${['09:00','10:00','11:00','13:00','14:00','15:00','16:00'].map(h =>
+                  `<option value="${h}" ${h === time ? 'selected' : ''}>${h}</option>`
+                ).join('')}
+              </select>
+            </div>
+
+            <div class="field">
+              <label for="edit-doctor">Profissional</label>
+              <select id="edit-doctor">
+                ${state.doctors.map(d =>
+                  `<option value="${d.id}" ${d.id === a.doctor_user_id ? 'selected' : ''}>${escapeHtml(d.full_name)}</option>`
+                ).join('')}
+              </select>
+            </div>
+
+            <div class="field">
+              <label for="edit-status">Status</label>
+              <select id="edit-status">
+                <option value="scheduled"  ${a.status === 'scheduled'  ? 'selected' : ''}>Agendada</option>
+                <option value="completed"  ${a.status === 'completed'  ? 'selected' : ''}>Realizada</option>
+                <option value="cancelled"  ${a.status === 'cancelled'  ? 'selected' : ''}>Cancelada</option>
+                <option value="no_show"    ${a.status === 'no_show'    ? 'selected' : ''}>Faltou</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label for="edit-meeting-link">Link da reunião (Google Meet, Zoom, etc.)</label>
+              <input id="edit-meeting-link" type="url"
+                     placeholder="https://meet.google.com/abc-defg-hij"
+                     value="${escapeHtml(a.meeting_link || '')}">
+              <p class="text-small text-muted" style="margin-top: 4px;">
+                Cole aqui o link da reunião. Vai aparecer pro paciente e pra profissional clicarem perto da hora.
+              </p>
+            </div>
+
+            <div class="field">
+              <label for="edit-notes">Notas internas</label>
+              <textarea id="edit-notes" rows="3">${escapeHtml(a.notes || '')}</textarea>
+            </div>
+
+            <div class="modal-actions">
+              <button class="btn btn-ghost" onclick="closeEditModal()">Cancelar</button>
+              <button class="btn btn-primary" onclick="saveEdit(${apptId})">Salvar</button>
+            </div>
+          </div>
+        </div>
+      `;
+
+      document.getElementById('modal-overlay').onclick = (e) => {
+        if (e.target.id === 'modal-overlay') closeEditModal();
+      };
+    }
+
+    function closeEditModal() {
+      document.getElementById('modal-container').innerHTML = '';
+    }
+
+    async function saveEdit(apptId, force = false) {
+      const date   = document.getElementById('edit-date').value;
+      const time   = document.getElementById('edit-time').value;
+      const docId  = parseInt(document.getElementById('edit-doctor').value, 10);
+      const status = document.getElementById('edit-status').value;
+      const notes  = document.getElementById('edit-notes').value;
+      const link   = document.getElementById('edit-meeting-link').value.trim();
+
+      const payload = {
+        id: apptId,
+        scheduled_at: date + ' ' + time + ':00',
+        doctor_user_id: docId,
+        status: status,
+        notes: notes,
+        meeting_link: link,
+      };
+      if (force) payload.force = true;
+
+      try {
+        await api.post('/appointments/update', payload);
+        toast.success('Consulta atualizada.');
+        closeEditModal();
+        await loadCalendar();
+        await loadDay(state.selectedDate);
+      } catch (err) {
+        // 422 com override_with=force → pergunta se quer forçar
+        if (err.status === 422 && err.details && err.details.override_with === 'force') {
+          const msg = err.details.scheduled_at || err.message;
+          if (confirm(msg + '\n\nDeseja confirmar mesmo assim?')) {
+            return saveEdit(apptId, true);
+          }
+        } else {
+          toast.error(err.message || 'Erro ao salvar.');
+        }
+      }
+    }
+
+    async function cancelAppt(apptId) {
+      if (!confirm('Cancelar esta consulta? A vaga voltará a ficar disponível pro paciente.')) return;
+      try {
+        await api.post('/appointments/update', { id: apptId, status: 'cancelled' });
+        toast.success('Consulta cancelada.');
+        await loadCalendar();
+        await loadDay(state.selectedDate);
+      } catch (err) {
+        toast.error(err.message || 'Erro ao cancelar.');
+      }
+    }
+
+    /* ===== Helpers ===== */
+    function escapeHtml(s) {
+      return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+
+    init();
+  </script>
+</body>
+</html>

@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Profissionais — SGX Admin</title>
+  <link rel="stylesheet" href="../assets/css/base.css">
+  <link rel="stylesheet" href="../assets/css/dashboard.css">
+</head>
+<body>
+
+  <div class="dash" id="dash-root">
+    <main class="dash-main">
+
+      <header class="dash-header">
+        <div>
+          <h1 class="dash-title">Profissionais</h1>
+          <p class="dash-subtitle">Gerencie médicos, enfermeiros e administradores do sistema.</p>
+        </div>
+        <button class="btn btn-primary" onclick="openCreateModal()">+ Novo profissional</button>
+      </header>
+
+      <!-- Filtro de role -->
+      <div class="filters">
+        <div class="field">
+          <label for="f-role">Filtrar por papel</label>
+          <select class="select" id="f-role" onchange="loadUsers()">
+            <option value="">Todos</option>
+            <option value="doctor">Médicos</option>
+            <option value="nurse">Enfermeiros</option>
+            <option value="receptionist">Recepção</option>
+            <option value="admin">Administradores</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="table-wrapper">
+        <div class="table-toolbar">
+          <h3>Lista de profissionais</h3>
+          <span class="text-small text-muted" id="result-count">—</span>
+        </div>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Nome</th>
+              <th>E-mail</th>
+              <th>Papel</th>
+              <th>Registro</th>
+              <th>Telefone</th>
+              <th>Status</th>
+              <th>Último acesso</th>
+              <th class="col-actions">Ações</th>
+            </tr>
+          </thead>
+          <tbody id="tbody">
+            <tr><td colspan="8" class="empty-state">Carregando...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+    </main>
+  </div>
+
+  <!-- Modal Criar -->
+  <div id="create-modal" class="modal-backdrop" style="display:none;">
+    <div class="modal">
+      <div class="modal-header">
+        <div>
+          <h3>Novo profissional</h3>
+          <p class="text-small text-muted">Cadastre médicos, enfermeiros ou administradores.</p>
+        </div>
+        <button class="modal-close" onclick="closeCreateModal()">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="field">
+          <label for="c-name">Nome completo</label>
+          <input class="input" id="c-name" type="text">
+        </div>
+        <div class="grid gap-4" style="grid-template-columns: 1fr 1fr;">
+          <div class="field">
+            <label for="c-email">E-mail</label>
+            <input class="input" id="c-email" type="email">
+          </div>
+          <div class="field">
+            <label for="c-role">Papel</label>
+            <select class="select" id="c-role" onchange="togglePid()">
+              <option value="doctor">Médico</option>
+              <option value="nurse">Enfermeiro</option>
+              <option value="receptionist">Recepção</option>
+              <option value="admin">Administrador</option>
+            </select>
+          </div>
+        </div>
+        <div class="field" id="c-pid-field">
+          <label for="c-pid">CRM / COREN</label>
+          <input class="input" id="c-pid" type="text" placeholder="Ex: CRM-12345 / COREN-67890">
+          <span class="help">Obrigatório para médicos e enfermeiros.</span>
+        </div>
+        <div class="grid gap-4" style="grid-template-columns: 1fr 1fr;">
+          <div class="field">
+            <label for="c-phone">Telefone (opcional)</label>
+            <input class="input" id="c-phone" type="tel">
+          </div>
+          <div class="field">
+            <label for="c-pass">Senha provisória</label>
+            <input class="input" id="c-pass" type="text" placeholder="Mín. 8 caracteres">
+            <span class="help">O profissional poderá alterar depois.</span>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="closeCreateModal()">Cancelar</button>
+        <button class="btn btn-primary" onclick="submitCreate()" id="btn-create">Criar profissional</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Editar -->
+  <div id="edit-modal" class="modal-backdrop" style="display:none;">
+    <div class="modal">
+      <div class="modal-header">
+        <div>
+          <h3>Editar profissional</h3>
+          <p class="text-small text-muted" id="e-subtitle">—</p>
+        </div>
+        <button class="modal-close" onclick="closeEditModal()">×</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="e-id">
+        <div class="field">
+          <label for="e-name">Nome completo</label>
+          <input class="input" id="e-name" type="text">
+        </div>
+        <div class="grid gap-4" style="grid-template-columns: 1fr 1fr;">
+          <div class="field">
+            <label for="e-pid">CRM / COREN</label>
+            <input class="input" id="e-pid" type="text">
+          </div>
+          <div class="field">
+            <label for="e-phone">Telefone</label>
+            <input class="input" id="e-phone" type="tel">
+          </div>
+        </div>
+        <div class="field">
+          <label for="e-pass">Resetar senha (opcional)</label>
+          <input class="input" id="e-pass" type="text" placeholder="Deixe em branco para manter a atual">
+        </div>
+        <div class="field" style="flex-direction: row; align-items: center; gap: var(--space-3);">
+          <input type="checkbox" id="e-active">
+          <label for="e-active" style="font-weight: 400; margin: 0;">Conta ativa</label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="closeEditModal()">Cancelar</button>
+        <button class="btn btn-primary" onclick="submitEdit()" id="btn-edit">Salvar alterações</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="../assets/js/api.js"></script>
+  <script src="../assets/js/shared.js"></script>
+  <script>
+    if (!requireAuth(['admin'])) { /* redireciona */ }
+    document.getElementById('dash-root').insertAdjacentHTML('afterbegin', renderSidebar('users'));
+
+    let usersList = [];
+
+    const ROLE_BADGE = {
+      doctor: '<span class="badge badge-info">Médico</span>',
+      nurse:  '<span class="badge" style="background:var(--color-accent-light);color:var(--color-accent-hover);">Enfermeiro</span>',
+      receptionist: '<span class="badge" style="background:#e0e7ff;color:#3730a3;">Recepção</span>',
+      admin:  '<span class="badge" style="background:#fef3c7;color:#92400e;">Admin</span>',
+    };
+
+    async function loadUsers() {
+      const role = document.getElementById('f-role').value;
+      const tbody = document.getElementById('tbody');
+      tbody.innerHTML = '<tr><td colspan="8" class="empty-state">Carregando...</td></tr>';
+
+      try {
+        const list = await api.get('/users/list' + (role ? `?role=${role}` : ''));
+        usersList = list;
+        document.getElementById('result-count').textContent =
+          `${list.length} profissionais`;
+
+        if (list.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="8" class="empty-state">
+            <div class="icon">👨‍⚕️</div>
+            <div>Nenhum profissional cadastrado.</div>
+          </td></tr>`;
+          return;
+        }
+
+        tbody.innerHTML = list.map(u => {
+          const initials = getPatientInitials(u.full_name);
+          return `
+            <tr>
+              <td>
+                <div class="patient-cell">
+                  <div class="avatar">${escapeHtmlGlobal(initials)}</div>
+                  <div>
+                    <div class="name">${escapeHtmlGlobal(u.full_name)}</div>
+                    <div class="meta">ID #${u.id}</div>
+                  </div>
+                </div>
+              </td>
+              <td class="text-small">${escapeHtmlGlobal(u.email)}</td>
+              <td>${ROLE_BADGE[u.role] || u.role}</td>
+              <td>${escapeHtmlGlobal(u.professional_id || '—')}</td>
+              <td class="text-small">${escapeHtmlGlobal(u.phone || '—')}</td>
+              <td>
+                ${u.is_active
+                  ? '<span class="answer-pill no">Ativo</span>'
+                  : '<span class="answer-pill yes">Inativo</span>'}
+              </td>
+              <td class="text-small text-muted">${u.last_login_at ? formatDateBR(u.last_login_at) : 'Nunca'}</td>
+              <td class="col-actions">
+                <button class="btn btn-secondary btn-sm" onclick="openEditModal(${u.id})">Editar</button>
+              </td>
+            </tr>
+          `;
+        }).join('');
+      } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="8" class="empty-state">
+          <div class="icon">⚠️</div>${escapeHtmlGlobal(err.message)}</td></tr>`;
+      }
+    }
+
+    /* ====== Criar ====== */
+    function openCreateModal() {
+      document.getElementById('create-modal').style.display = 'grid';
+      ['c-name', 'c-email', 'c-pid', 'c-phone', 'c-pass'].forEach(id =>
+        document.getElementById(id).value = ''
+      );
+      document.getElementById('c-role').value = 'doctor';
+      togglePid();
+    }
+    function closeCreateModal() {
+      document.getElementById('create-modal').style.display = 'none';
+    }
+    function togglePid() {
+      const role = document.getElementById('c-role').value;
+      document.getElementById('c-pid-field').style.display =
+        (role === 'admin') ? 'none' : 'flex';
+    }
+    async function submitCreate() {
+      const btn = document.getElementById('btn-create');
+      btn.disabled = true;
+      btn.textContent = 'Criando...';
+      try {
+        await api.post('/users/create', {
+          full_name:       document.getElementById('c-name').value,
+          email:           document.getElementById('c-email').value,
+          password:        document.getElementById('c-pass').value,
+          role:            document.getElementById('c-role').value,
+          professional_id: document.getElementById('c-pid').value,
+          phone:           document.getElementById('c-phone').value,
+        });
+        toast.success('Profissional criado.');
+        closeCreateModal();
+        loadUsers();
+      } catch (err) {
+        toast.error(err.message);
+        if (err.details) Object.values(err.details).flat().forEach(m => toast.error(m));
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Criar profissional';
+      }
+    }
+
+    /* ====== Editar ====== */
+    function openEditModal(id) {
+      const u = usersList.find(x => x.id === id);
+      if (!u) return;
+      document.getElementById('e-id').value         = u.id;
+      document.getElementById('e-subtitle').textContent = u.email;
+      document.getElementById('e-name').value       = u.full_name;
+      document.getElementById('e-pid').value        = u.professional_id || '';
+      document.getElementById('e-phone').value      = u.phone || '';
+      document.getElementById('e-pass').value       = '';
+      document.getElementById('e-active').checked   = !!u.is_active;
+      document.getElementById('edit-modal').style.display = 'grid';
+    }
+    function closeEditModal() {
+      document.getElementById('edit-modal').style.display = 'none';
+    }
+    async function submitEdit() {
+      const btn = document.getElementById('btn-edit');
+      btn.disabled = true;
+      btn.textContent = 'Salvando...';
+      try {
+        const payload = {
+          id:              parseInt(document.getElementById('e-id').value, 10),
+          full_name:       document.getElementById('e-name').value,
+          professional_id: document.getElementById('e-pid').value,
+          phone:           document.getElementById('e-phone').value,
+          is_active:       document.getElementById('e-active').checked,
+        };
+        const pass = document.getElementById('e-pass').value;
+        if (pass) payload.password = pass;
+
+        await api.post('/users/update', payload);
+        toast.success('Profissional atualizado.');
+        closeEditModal();
+        loadUsers();
+      } catch (err) {
+        toast.error(err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Salvar alterações';
+      }
+    }
+
+    loadUsers();
+  </script>
+</body>
+</html>

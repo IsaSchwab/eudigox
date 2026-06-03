@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Consultas — Recepção</title>
+  <link rel="stylesheet" href="../assets/css/base.css">
+  <link rel="stylesheet" href="../assets/css/dashboard.css">
+  <style>
+    .tabs-period {
+      display: flex; gap: var(--space-2);
+      border-bottom: 1px solid var(--color-border);
+      margin-bottom: var(--space-4);
+    }
+    .tabs-period .tab {
+      background: none; border: none;
+      padding: var(--space-3) var(--space-4);
+      cursor: pointer; font-size: var(--fs-sm); font-weight: 500;
+      color: var(--color-text-muted);
+      border-bottom: 3px solid transparent;
+      margin-bottom: -1px; transition: all 0.15s;
+    }
+    .tabs-period .tab:hover { color: var(--color-text); }
+    .tabs-period .tab.active {
+      color: var(--color-primary);
+      border-bottom-color: var(--color-primary);
+    }
+    .tabs-period .tab .count {
+      display: inline-block; background: var(--color-primary-50);
+      color: var(--color-primary); padding: 2px 8px;
+      border-radius: 999px; font-size: 11px; margin-left: 6px;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="dash" id="dash-root">
+    <main class="dash-main">
+
+      <header class="dash-header">
+        <div>
+          <h1 class="dash-title">Consultas agendadas</h1>
+          <p class="dash-subtitle">Consultas de todos os profissionais.</p>
+        </div>
+        <a href="reception-schedule.html" class="btn btn-primary">+ Agendar nova consulta</a>
+      </header>
+
+      <!-- Chip indicando filtro de paciente (vindo de Triagens) -->
+      <div id="patient-filter-chip" style="display:none; margin-bottom: var(--space-4);">
+        <div style="display:inline-flex; align-items:center; gap:var(--space-2); padding: 8px 14px; background: var(--color-primary-50); border-radius: 999px; color: var(--color-primary); font-size: var(--fs-sm); font-weight: 500;">
+          <span>👤 Mostrando apenas consultas de: <strong id="chip-patient-name">—</strong></span>
+          <button onclick="clearPatientFilter()" style="background:none; border:none; color: var(--color-primary); cursor: pointer; font-size: 16px; padding: 0 4px;" title="Remover filtro">✕</button>
+        </div>
+      </div>
+
+      <div class="tabs-period">
+        <button class="tab active" data-period="today"    onclick="switchPeriod('today')">Hoje <span class="count" id="cnt-today">—</span></button>
+        <button class="tab"        data-period="upcoming" onclick="switchPeriod('upcoming')">Próximas <span class="count" id="cnt-upcoming">—</span></button>
+        <button class="tab"        data-period="past"     onclick="switchPeriod('past')">Anteriores <span class="count" id="cnt-past">—</span></button>
+      </div>
+
+      <div class="filters">
+        <div class="field">
+          <label for="f-priority">Prioridade</label>
+          <select class="select" id="f-priority" onchange="onSearchChange()">
+            <option value="">Todas</option>
+            <option value="high">Alta</option>
+            <option value="medium">Média</option>
+            <option value="low">Baixa</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="f-status">Status</label>
+          <select class="select" id="f-status" onchange="onSearchChange()">
+            <option value="">Todos</option>
+            <option value="scheduled">Agendada</option>
+            <option value="completed">Realizada</option>
+            <option value="cancelled">Cancelada</option>
+            <option value="no_show">Não compareceu</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="f-cpf">CPF</label>
+          <input class="input" id="f-cpf" type="text" placeholder="000.000.000-00" oninput="onSearchChange()">
+        </div>
+        <div class="field">
+          <label for="f-name">Nome do paciente</label>
+          <input class="input" id="f-name" type="text" placeholder="Buscar..." oninput="onSearchChange()">
+        </div>
+        <div style="display:flex;gap:var(--space-2);align-items:end;padding-bottom:2px;">
+          <button class="btn btn-ghost btn-sm" onclick="resetFilters()">Limpar</button>
+        </div>
+      </div>
+
+      <div class="table-wrapper">
+        <div class="table-toolbar">
+          <h3 id="period-title">Consultas de hoje</h3>
+          <span class="text-small text-muted" id="result-count">—</span>
+        </div>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Paciente</th>
+              <th>CPF</th>
+              <th>Profissional</th>
+              <th>Data/hora</th>
+              <th>Local</th>
+              <th>Prioridade</th>
+              <th>Status</th>
+              <th class="col-actions">Ações</th>
+            </tr>
+          </thead>
+          <tbody id="tbody">
+            <tr><td colspan="8" class="empty-state">Carregando...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+    </main>
+  </div>
+
+  <!-- Modal de edição -->
+  <div id="edit-modal" class="modal-backdrop" style="display:none;">
+    <div class="modal">
+      <div class="modal-header">
+        <div>
+          <h3>Editar consulta</h3>
+          <p class="text-small text-muted" id="e-subtitle">—</p>
+        </div>
+        <button class="modal-close" onclick="closeEditModal()">×</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="e-id">
+        <div class="grid gap-4" style="grid-template-columns: 1fr 1fr;">
+          <div class="field">
+            <label for="e-date">Data</label>
+            <input class="input" id="e-date" type="date">
+          </div>
+          <div class="field">
+            <label for="e-time">Horário</label>
+            <input class="input" id="e-time" type="time">
+          </div>
+        </div>
+        <div class="field">
+          <label for="e-location">Local</label>
+          <input class="input" id="e-location" type="text">
+        </div>
+        <div class="field">
+          <label for="e-status">Status</label>
+          <select class="select" id="e-status">
+            <option value="scheduled">Agendada</option>
+            <option value="completed">Realizada</option>
+            <option value="cancelled">Cancelada</option>
+            <option value="no_show">Não compareceu</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="e-notes">Observações</label>
+          <textarea class="textarea" id="e-notes" rows="3"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="closeEditModal()">Cancelar</button>
+        <button class="btn btn-primary" onclick="submitEdit()" id="btn-edit">Salvar alterações</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="../assets/js/api.js"></script>
+  <script src="../assets/js/shared.js"></script>
+  <script>
+    if (!requireAuth(['receptionist', 'admin'])) { /* redireciona */ }
+    document.getElementById('dash-root').insertAdjacentHTML('afterbegin', renderSidebar('consultas'));
+
+    // Detecta se veio com filtro de paciente (vindo de Triagens → "Editar nas consultas")
+    const urlParams = new URLSearchParams(location.search);
+    let patientFilter = parseInt(urlParams.get('patient_id'), 10) || null;
+    let patientFilterName = null; // será preenchido depois quando carregar
+
+    let currentPeriod = patientFilter ? null : 'today';  // se tem filtro de paciente, ignora período
+    let apptsList = [];
+    let searchTimer = null;
+
+    const STATUS_BADGES = {
+      scheduled: '<span class="badge badge-info">Agendada</span>',
+      completed: '<span class="answer-pill no">Realizada</span>',
+      cancelled: '<span class="answer-pill yes">Cancelada</span>',
+      no_show:   '<span class="answer-pill unknown">Não compareceu</span>',
+    };
+    const PRIORITY_BADGES = {
+      high:   '<span class="badge badge-high">Alta</span>',
+      medium: '<span class="badge badge-medium">Média</span>',
+      low:    '<span class="badge badge-low">Baixa</span>',
+    };
+    const PERIOD_TITLES = {
+      today:    'Consultas de hoje',
+      upcoming: 'Próximas consultas',
+      past:     'Consultas anteriores',
+    };
+
+    function switchPeriod(period) {
+      // Clicar em uma aba remove o filtro de paciente automaticamente
+      if (patientFilter) {
+        patientFilter = null;
+        patientFilterName = null;
+        document.getElementById('patient-filter-chip').style.display = 'none';
+        history.replaceState(null, '', location.pathname);
+      }
+      currentPeriod = period;
+      document.getElementById('f-priority').value = '';
+      document.getElementById('f-status').value = '';
+      document.getElementById('f-cpf').value = '';
+      document.getElementById('f-name').value = '';
+      document.querySelectorAll('.tabs-period .tab').forEach(t => {
+        t.classList.toggle('active', t.dataset.period === period);
+      });
+      loadAppointments();
+    }
+
+    function resetFilters() {
+      document.getElementById('f-priority').value = '';
+      document.getElementById('f-status').value = '';
+      document.getElementById('f-cpf').value = '';
+      document.getElementById('f-name').value = '';
+      if (!patientFilter) {
+        document.querySelectorAll('.tabs-period .tab').forEach(t => {
+          t.classList.toggle('active', t.dataset.period === currentPeriod);
+        });
+      }
+      loadAppointments();
+    }
+
+    function onSearchChange() {
+      // Quando filtra por nome/CPF/etc, remove o filtro de paciente
+      if (patientFilter) {
+        patientFilter = null;
+        patientFilterName = null;
+        currentPeriod = 'today';
+        document.getElementById('patient-filter-chip').style.display = 'none';
+        history.replaceState(null, '', location.pathname);
+      }
+      document.querySelectorAll('.tabs-period .tab').forEach(t => t.classList.remove('active'));
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(loadAppointments, 350);
+    }
+
+    function calcAge(birthDate) {
+      if (!birthDate) return '—';
+      const b = new Date(birthDate); const d = new Date();
+      let age = d.getFullYear() - b.getFullYear();
+      const m = d.getMonth() - b.getMonth();
+      if (m < 0 || (m === 0 && d.getDate() < b.getDate())) age--;
+      return age + ' anos';
+    }
+
+    async function loadAppointments() {
+      const priority = document.getElementById('f-priority').value;
+      const status   = document.getElementById('f-status').value;
+      const cpf      = document.getElementById('f-cpf').value.trim();
+      const name     = document.getElementById('f-name').value.trim();
+      const hasFilters = !!(priority || status || cpf || name);
+
+      const params = new URLSearchParams();
+
+      // Filtro de paciente (vindo de Triagens) tem prioridade sobre tudo
+      if (patientFilter) {
+        params.set('patient', patientFilter);
+        // Quando filtra por paciente, ignora o período (mostra todas as consultas dele)
+      } else if (!hasFilters) {
+        params.set('period', currentPeriod);
+      }
+
+      if (priority) params.set('priority', priority);
+      if (status)   params.set('status', status);
+      if (cpf)      params.set('cpf', cpf);
+      if (name)     params.set('name', name);
+
+      const tbody = document.getElementById('tbody');
+      tbody.innerHTML = '<tr><td colspan="8" class="empty-state">Carregando...</td></tr>';
+
+      // Atualiza título conforme contexto
+      let title;
+      if (patientFilter) {
+        title = `Todas as consultas${patientFilterName ? ' de ' + patientFilterName : ' do paciente'}`;
+      } else if (hasFilters) {
+        title = 'Resultado da busca (todas as consultas)';
+      } else {
+        title = PERIOD_TITLES[currentPeriod];
+      }
+      document.getElementById('period-title').textContent = title;
+
+      try {
+        const list = await api.get('/appointments/list?' + params.toString());
+        apptsList = list;
+        document.getElementById('result-count').textContent =
+          `${list.length} consulta${list.length !== 1 ? 's' : ''}`;
+
+        if (list.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="8" class="empty-state">
+            <div class="icon">📅</div>
+            <div>Nenhuma consulta encontrada.</div>
+          </td></tr>`;
+        } else {
+          tbody.innerHTML = list.map(a => `
+            <tr>
+              <td>
+                <div class="patient-cell">
+                  <div class="avatar">${getPatientInitials(a.patient_name)}</div>
+                  <div>
+                    <div class="name">${escapeHtmlGlobal(a.patient_name)}</div>
+                    <div class="meta">${calcAge(a.birth_date)} · ${a.biological_sex === 'M' ? 'Masc' : 'Fem'}</div>
+                  </div>
+                </div>
+              </td>
+              <td class="text-small">${escapeHtmlGlobal(a.cpf || '—')}</td>
+              <td class="text-small">${escapeHtmlGlobal(a.doctor_name)}</td>
+              <td class="text-small">${formatDateBR(a.scheduled_at)}</td>
+              <td class="text-small text-muted">${escapeHtmlGlobal(a.location || '—')}</td>
+              <td>${PRIORITY_BADGES[a.last_screening_priority] || '<span class="text-muted">—</span>'}</td>
+              <td>${STATUS_BADGES[a.status] || a.status}</td>
+              <td class="col-actions">
+                <button class="btn btn-secondary btn-sm" onclick="openEditModal(${a.id})">Editar</button>
+              </td>
+            </tr>
+          `).join('');
+
+          // Se filtrando por paciente, descobre o nome no primeiro resultado
+          if (patientFilter && list.length > 0 && !patientFilterName) {
+            patientFilterName = list[0].patient_name;
+            document.getElementById('chip-patient-name').textContent = patientFilterName;
+            // Reatualiza o título com o nome
+            document.getElementById('period-title').textContent = `Todas as consultas de ${patientFilterName}`;
+          }
+        }
+      } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="8" class="empty-state">
+          <div class="icon">⚠️</div>${escapeHtmlGlobal(err.message)}</td></tr>`;
+      }
+    }
+
+    async function loadCounters() {
+      try {
+        const [today, upcoming, past] = await Promise.all([
+          api.get('/appointments/list?period=today'),
+          api.get('/appointments/list?period=upcoming'),
+          api.get('/appointments/list?period=past'),
+        ]);
+        document.getElementById('cnt-today').textContent    = today.length;
+        document.getElementById('cnt-upcoming').textContent = upcoming.length;
+        document.getElementById('cnt-past').textContent     = past.length;
+      } catch {}
+    }
+
+    /* ===== Editar ===== */
+    function openEditModal(id) {
+      const a = apptsList.find(x => x.id === id);
+      if (!a) return;
+      const dt = new Date(a.scheduled_at.replace(' ', 'T'));
+      document.getElementById('e-id').value = a.id;
+      document.getElementById('e-subtitle').textContent =
+        `${a.patient_name} com ${a.doctor_name}`;
+      document.getElementById('e-date').value     = dt.toISOString().slice(0, 10);
+      document.getElementById('e-time').value     = dt.toTimeString().slice(0, 5);
+      document.getElementById('e-location').value = a.location || '';
+      document.getElementById('e-status').value   = a.status;
+      document.getElementById('e-notes').value    = a.notes || '';
+      document.getElementById('edit-modal').style.display = 'grid';
+    }
+    function closeEditModal() {
+      document.getElementById('edit-modal').style.display = 'none';
+    }
+    async function submitEdit() {
+      const btn = document.getElementById('btn-edit');
+      btn.disabled = true;
+      btn.textContent = 'Salvando...';
+      try {
+        await api.post('/appointments/update', {
+          id:           parseInt(document.getElementById('e-id').value, 10),
+          scheduled_at: `${document.getElementById('e-date').value} ${document.getElementById('e-time').value}:00`,
+          location:     document.getElementById('e-location').value,
+          status:       document.getElementById('e-status').value,
+          notes:        document.getElementById('e-notes').value,
+        });
+        toast.success('Consulta atualizada.');
+        closeEditModal();
+        loadAppointments();
+        loadCounters();
+      } catch (err) {
+        toast.error(err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Salvar alterações';
+      }
+    }
+
+    function clearPatientFilter() {
+      // Remove filtro de paciente e volta ao modo normal
+      patientFilter = null;
+      patientFilterName = null;
+      currentPeriod = 'today';
+      document.getElementById('patient-filter-chip').style.display = 'none';
+      // Reativa a aba "hoje"
+      document.querySelectorAll('.tabs-period .tab').forEach(t => {
+        t.classList.toggle('active', t.dataset.period === 'today');
+      });
+      // Remove patient_id da URL sem recarregar
+      history.replaceState(null, '', location.pathname);
+      loadAppointments();
+    }
+
+    // Se veio com filtro de paciente, configura UI inicial
+    if (patientFilter) {
+      document.getElementById('patient-filter-chip').style.display = '';
+      document.getElementById('chip-patient-name').textContent = 'paciente';
+      // Desativa as abas de período (paciente vê todas as consultas dele)
+      document.querySelectorAll('.tabs-period .tab').forEach(t => t.classList.remove('active'));
+    }
+
+    loadCounters();
+    loadAppointments();
+  </script>
+</body>
+</html>

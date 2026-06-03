@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard — SGX</title>
+  <link rel="stylesheet" href="../assets/css/base.css">
+  <link rel="stylesheet" href="../assets/css/dashboard.css">
+</head>
+<body>
+
+  <div class="dash" id="dash-root">
+    <!-- sidebar renderizada via JS -->
+    <main class="dash-main">
+
+      <header class="dash-header">
+        <div>
+          <h1 class="dash-title">Triagens</h1>
+          <p class="dash-subtitle" id="welcome">Visão geral das triagens recebidas.</p>
+        </div>
+      </header>
+
+      <!-- KPIs -->
+      <div class="kpi-grid">
+        <div class="kpi-card kpi-high">
+          <div class="kpi-label">Prioridade alta</div>
+          <div class="kpi-value" id="kpi-high">—</div>
+          <div class="kpi-hint">Encaminhar para exame</div>
+        </div>
+        <div class="kpi-card kpi-medium">
+          <div class="kpi-label">Prioridade média</div>
+          <div class="kpi-value" id="kpi-medium">—</div>
+          <div class="kpi-hint">Acompanhamento</div>
+        </div>
+        <div class="kpi-card kpi-low">
+          <div class="kpi-label">Prioridade baixa</div>
+          <div class="kpi-value" id="kpi-low">—</div>
+          <div class="kpi-hint">Sem ação imediata</div>
+        </div>
+        <div class="kpi-card kpi-info">
+          <div class="kpi-label">Total de triagens</div>
+          <div class="kpi-value" id="kpi-total">—</div>
+          <div class="kpi-hint">Acumulado</div>
+        </div>
+      </div>
+
+      <!-- Filtros -->
+      <div class="filters">
+        <div class="field">
+          <label for="f-priority">Prioridade</label>
+          <select class="select" id="f-priority">
+            <option value="">Todas</option>
+            <option value="high">Alta</option>
+            <option value="medium">Média</option>
+            <option value="low">Baixa</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="f-status">Status</label>
+          <select class="select" id="f-status">
+            <option value="">Todos</option>
+            <option value="submitted">Enviadas</option>
+            <option value="reviewed">Revisadas</option>
+            <option value="closed">Encerradas</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="f-cpf">CPF do paciente</label>
+          <input class="input" id="f-cpf" type="text" placeholder="000.000.000-00">
+        </div>
+        <div class="field">
+          <label for="f-from">De</label>
+          <input class="input" id="f-from" type="date">
+        </div>
+        <div class="field">
+          <label for="f-to">Até</label>
+          <input class="input" id="f-to" type="date">
+        </div>
+        <div style="display:flex;gap:var(--space-2);align-items:end;padding-bottom:2px;">
+          <button class="btn btn-primary btn-sm" onclick="loadScreenings(1)">Filtrar</button>
+          <button class="btn btn-ghost btn-sm" onclick="resetFilters()">Limpar</button>
+        </div>
+      </div>
+
+      <!-- Tabela -->
+      <div class="table-wrapper">
+        <div class="table-toolbar">
+          <h3>Lista de triagens</h3>
+          <span class="text-small text-muted" id="result-count">—</span>
+        </div>
+
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Paciente</th>
+              <th>Sexo</th>
+              <th>Idade</th>
+              <th>Score</th>
+              <th>Prioridade</th>
+              <th>Recomendação</th>
+              <th>Status</th>
+              <th>Enviada em</th>
+              <th class="col-actions">Ações</th>
+            </tr>
+          </thead>
+          <tbody id="tbody">
+            <tr><td colspan="9" class="empty-state">Carregando...</td></tr>
+          </tbody>
+        </table>
+
+        <div class="pagination" id="pagination" style="display:none;">
+          <span id="page-info">—</span>
+          <div>
+            <button id="btn-prev" onclick="changePage(-1)">←</button>
+            <button id="btn-next" onclick="changePage(1)">→</button>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+
+  <script src="../assets/js/api.js"></script>
+  <script src="../assets/js/shared.js"></script>
+  <script>
+    // Guarda de rota: doctor, nurse ou admin
+    if (!requireAuth(['doctor', 'nurse', 'admin'])) { /* redireciona */ }
+
+    let currentPage = 1;
+    let totalPages  = 1;
+    const PER_PAGE  = 20;
+
+    // Renderiza sidebar
+    document.getElementById('dash-root').insertAdjacentHTML('afterbegin', renderSidebar('dashboard'));
+
+    // Welcome com primeiro nome
+    const user = api.getUser();
+    if (user) {
+      document.getElementById('welcome').textContent =
+        `Olá, ${user.full_name.split(' ')[0]}. Aqui estão as triagens recebidas, priorizadas pelo score clínico.`;
+    }
+
+    function getFilters() {
+      return {
+        priority: document.getElementById('f-priority').value,
+        status:   document.getElementById('f-status').value,
+        cpf:      document.getElementById('f-cpf').value.trim(),
+        from:     document.getElementById('f-from').value,
+        to:       document.getElementById('f-to').value,
+      };
+    }
+
+    function resetFilters() {
+      document.getElementById('f-priority').value = '';
+      document.getElementById('f-status').value   = '';
+      document.getElementById('f-cpf').value      = '';
+      document.getElementById('f-from').value     = '';
+      document.getElementById('f-to').value       = '';
+      loadScreenings(1);
+    }
+
+    async function loadScreenings(page = 1) {
+      currentPage = page;
+      const f = getFilters();
+      const params = new URLSearchParams({ page, per_page: PER_PAGE });
+      if (f.priority) params.set('priority', f.priority);
+      if (f.status)   params.set('status', f.status);
+      if (f.cpf)      params.set('cpf', f.cpf);
+      if (f.from)     params.set('from', f.from);
+      if (f.to)       params.set('to', f.to);
+
+      const tbody = document.getElementById('tbody');
+      tbody.innerHTML = `<tr><td colspan="9" class="empty-state">Carregando...</td></tr>`;
+
+      try {
+        // Busca triagens (via api.js — usa cookie de sessão automaticamente)
+        const res = await fetch(`${API_BASE}/screenings/list.php?${params}`, {
+          credentials: 'include',
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || 'Erro ao carregar');
+
+        const list = json.data || [];
+        const meta = json.meta || {};
+
+        renderTable(list);
+        renderPagination(meta);
+        updateKPIs();
+      } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="9" class="empty-state">
+          <div class="icon">⚠️</div>
+          <div>${escapeHtmlGlobal(err.message)}</div>
+        </td></tr>`;
+      }
+    }
+
+    function renderTable(list) {
+      const tbody = document.getElementById('tbody');
+      const count = document.getElementById('result-count');
+      count.textContent = `${list.length} resultado${list.length !== 1 ? 's' : ''} nesta página`;
+
+      if (list.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="9" class="empty-state">
+          <div class="icon">🔎</div>
+          <div>Nenhuma triagem encontrada com esses filtros.</div>
+        </td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = list.map(s => {
+        const initials = getPatientInitials(s.patient_name);
+        const age = calcAge(s.birth_date);
+        const sex = s.biological_sex === 'M' ? 'M' : 'F';
+        const score = s.score !== null ? Number(s.score).toFixed(2) : '—';
+        const threshold = Number(s.threshold_applied || 0);
+        let scoreClass = '';
+        if (s.score !== null && s.score >= threshold) scoreClass = 'over';
+        else if (s.score !== null && s.score >= threshold * 0.7) scoreClass = 'near';
+
+        return `
+          <tr onclick="goToPatient(${s.patient_id}, ${s.id})">
+            <td>
+              <div class="patient-cell">
+                <div class="avatar">${escapeHtmlGlobal(initials)}</div>
+                <div>
+                  <div class="name">${escapeHtmlGlobal(s.patient_name)}</div>
+                  <div class="meta">ID #${s.patient_id}</div>
+                </div>
+              </div>
+            </td>
+            <td>${sex}</td>
+            <td class="col-num">${age !== null ? age + ' anos' : '—'}</td>
+            <td><span class="score-pill ${scoreClass}">${score}</span></td>
+            <td>${priorityBadge(s.priority)}</td>
+            <td>${recommendationLabel(s.recommendation)}</td>
+            <td><span class="text-small text-muted">${statusLabel(s.status)}</span></td>
+            <td class="text-small text-muted">${formatDateBR(s.submitted_at)}</td>
+            <td class="col-actions">
+              <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();goToPatient(${s.patient_id}, ${s.id})">
+                Abrir
+              </button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function renderPagination(meta) {
+      totalPages = meta.pages || 1;
+      const pag = document.getElementById('pagination');
+      if (totalPages <= 1) { pag.style.display = 'none'; return; }
+      pag.style.display = 'flex';
+      document.getElementById('page-info').textContent =
+        `Página ${meta.page} de ${meta.pages} · ${meta.total} no total`;
+      document.getElementById('btn-prev').disabled = meta.page <= 1;
+      document.getElementById('btn-next').disabled = meta.page >= meta.pages;
+    }
+
+    function changePage(delta) {
+      const next = currentPage + delta;
+      if (next < 1 || next > totalPages) return;
+      loadScreenings(next);
+    }
+
+    function goToPatient(patientId, screeningId) {
+      // Da tela de Triagens, sempre vai pro prontuário em modo somente leitura.
+      // Pra editar (registrar exame, escrever anotações), usar "Minhas consultas".
+      location.href = `patient-detail.html?id=${patientId}&screening=${screeningId}&mode=view`;
+    }
+
+    // KPIs simples — busca contagens por prioridade via fetch direto
+    // pra ler o `meta.total` (não vem no api.get que só devolve data)
+    async function updateKPIs() {
+      try {
+        const get = async (path) => {
+          const r = await fetch(`${API_BASE}${path}`, { credentials: 'include' });
+          return await r.json();
+        };
+        const [h, m, l, t] = await Promise.all([
+          get('/screenings/list.php?priority=high&per_page=1'),
+          get('/screenings/list.php?priority=medium&per_page=1'),
+          get('/screenings/list.php?priority=low&per_page=1'),
+          get('/screenings/list.php?per_page=1'),
+        ]);
+        document.getElementById('kpi-high').textContent   = h.meta?.total ?? 0;
+        document.getElementById('kpi-medium').textContent = m.meta?.total ?? 0;
+        document.getElementById('kpi-low').textContent    = l.meta?.total ?? 0;
+        document.getElementById('kpi-total').textContent  = t.meta?.total ?? 0;
+      } catch {}
+    }
+
+    // Init
+    loadScreenings(1);
+  </script>
+</body>
+</html>
