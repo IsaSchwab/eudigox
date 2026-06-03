@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Triagem — Eu Digo X</title>
+  <link rel="stylesheet" href="../assets/css/base.css">
+  <link rel="stylesheet" href="../assets/css/wizard.css">
+</head>
+<body class="wizard-page">
+
+  <div class="container-sm" style="margin-bottom: var(--space-4);">
+    <a href="index.html" class="logo" style="display: inline-flex;">
+      <span class="logo-mark">🦋</span> Eu Digo X
+    </a>
+  </div>
+
+  <div class="wizard">
+    <!-- Header -->
+    <div class="wizard-header">
+      <div id="wizard-step-indicator" class="wizard-step-indicator">Etapa 1 de 10</div>
+      <h2 id="wizard-title" class="wizard-title">Dados do paciente</h2>
+      <p id="wizard-subtitle" class="wizard-subtitle">Vamos começar com algumas informações básicas.</p>
+
+      <div class="wizard-progress">
+        <div class="wizard-progress-bar active"></div>
+        <div class="wizard-progress-bar"></div>
+        <div class="wizard-progress-bar"></div>
+        <div class="wizard-progress-bar"></div>
+        <div class="wizard-progress-bar"></div>
+        <div class="wizard-progress-bar"></div>
+        <div class="wizard-progress-bar"></div>
+        <div class="wizard-progress-bar"></div>
+        <div class="wizard-progress-bar"></div>
+        <div class="wizard-progress-bar"></div>
+      </div>
+    </div>
+
+    <!-- Body (renderizado pelo JS) -->
+    <div class="wizard-body" id="wizard-body"></div>
+
+    <!-- Footer -->
+    <div class="wizard-footer">
+      <button type="button" id="btn-back" class="btn btn-ghost">← Voltar</button>
+      <button type="button" id="btn-next" class="btn btn-primary">Continuar</button>
+    </div>
+  </div>
+
+  <script src="../assets/js/api.js"></script>
+  <script src="../assets/js/wizard.js"></script>
+</body>
+</html>

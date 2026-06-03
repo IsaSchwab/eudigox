@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Meu painel — SGX</title>
+  <link rel="stylesheet" href="../assets/css/base.css">
+  <link rel="stylesheet" href="../assets/css/dashboard.css">
+</head>
+<body>
+
+  <div class="dash" id="dash-root">
+    <main class="dash-main">
+
+      <header class="dash-header">
+        <div>
+          <h1 class="dash-title" id="welcome-title">Olá!</h1>
+          <p class="dash-subtitle">Acompanhe o status da sua triagem.</p>
+        </div>
+      </header>
+
+      <div id="content">
+        <div class="empty-state">Carregando...</div>
+      </div>
+
+    </main>
+  </div>
+
+  <script src="../assets/js/api.js"></script>
+  <script src="../assets/js/shared.js"></script>
+  <script>
+    if (!requireAuth(['patient'])) { /* redireciona */ }
+
+    document.getElementById('dash-root').insertAdjacentHTML('afterbegin', renderSidebar('dashboard'));
+
+    const user = api.getUser();
+    if (user) {
+      document.getElementById('welcome-title').textContent =
+        `Olá, ${user.full_name.split(' ')[0]}`;
+    }
+
+    async function load() {
+      try {
+        const data = await api.get('/patients/me');
+        renderState(data);
+      } catch (err) {
+        // 401 → não logado: redireciona pro login
+        if (err.status === 401) {
+          api.clearSession();
+          location.href = 'login.html';
+          return;
+        }
+
+        // 404 → logado mas sem cadastro de paciente: convidar a fazer triagem
+        if (err.status === 404) {
+          document.getElementById('content').innerHTML = `
+            <div class="status-card">
+              <div class="status-icon pending">📝</div>
+              <h2>Você ainda não fez sua triagem</h2>
+              <p>Para começar, responda nosso questionário de 12 itens. Leva cerca de 10 minutos.</p>
+              <a href="triagem.html" class="btn btn-primary btn-lg">Iniciar triagem agora →</a>
+            </div>
+          `;
+          return;
+        }
+
+        // Outros erros: mostrar mensagem real
+        document.getElementById('content').innerHTML = `
+          <div class="status-card">
+            <div class="status-icon pending">⚠️</div>
+            <h2>Não foi possível carregar seus dados</h2>
+            <p>${escapeHtmlGlobal(err.message || 'Erro inesperado.')}</p>
+            <button class="btn btn-secondary" onclick="location.reload()">Tentar novamente</button>
+          </div>
+        `;
+      }
+    }
+
+    /**
+     * Estados do paciente:
+     *   1. pending      — triagem enviada, aguardando análise
+     *   2. review       — em análise pela equipe
+     *   3. scheduled    — consulta agendada
+     *   4. exam         — exame solicitado/realizado, aguardando resultado
+     *   5. done         — diagnóstico fechado
+     */
+    function renderState(data) {
+      const lastScreening = data.screenings[0];
+      const lastExam      = data.exams[0];
+      // IMPORTANTE: o MySQL devolve "2026-06-04 10:00:00" (com espaço).
+      // O Safari/iOS não consegue parsear esse formato no `new Date()` —
+      // tem que trocar o espaço por "T" pra virar ISO 8601.
+      const parseDateTime = (s) => new Date(String(s || '').replace(' ', 'T'));
+      const now           = new Date();
+      const nextAppt      = data.appointments
+        .filter(a => a.status === 'scheduled' && parseDateTime(a.scheduled_at) > now)
+        .sort((a, b) => parseDateTime(a.scheduled_at) - parseDateTime(b.scheduled_at))[0];
+
+      let state = 'pending';
+
+      if (lastExam && lastScreening?.status === 'closed')        state = 'done';
+      else if (lastExam)                                          state = 'exam';
+      else if (nextAppt)                                          state = 'scheduled';
+      else if (lastScreening?.status === 'reviewed')              state = 'review';
+      else if (lastScreening?.status === 'submitted')             state = 'pending';
+
+      const cards = {
+        pending: {
+          icon: '⏳',
+          title: 'Recebemos sua triagem',
+          desc: 'Nossa equipe clínica está analisando suas respostas. Você receberá um aviso em breve com os próximos passos.',
+          extra: lastScreening ? `<div class="text-small text-muted" style="margin-top: var(--space-3);">
+            Enviada em ${formatDateBR(lastScreening.submitted_at)}
+          </div>` : '',
+        },
+        review: {
+          icon: '🩺',
+          title: 'Triagem em análise',
+          desc: 'Um profissional de saúde está revisando suas informações. Em breve entraremos em contato para os próximos passos.',
+          extra: '',
+        },
+        scheduled: {
+          icon: '📅',
+          title: 'Consulta agendada',
+          desc: nextAppt ? `Sua consulta online está marcada para <strong>${formatDateBR(nextAppt.scheduled_at)}</strong> com <strong>${escapeHtmlGlobal(nextAppt.doctor_name)}</strong>.` : '',
+          extra: '<p class="text-small text-muted">O link da reunião será enviado pela clínica próximo à data.</p>',
+        },
+        exam: {
+          icon: '🧬',
+          title: 'Exame molecular registrado',
+          desc: 'Os resultados do seu exame já estão disponíveis no seu prontuário. Em caso de dúvidas, agende uma consulta de retorno.',
+          extra: lastExam ? `<div class="text-small text-muted" style="margin-top: var(--space-3);">
+            ${lastExam.exam_type === 'pcr' ? 'PCR' : 'Southern Blotting'} realizado em ${formatDateOnly(lastExam.exam_date)}
+          </div>` : '',
+        },
+        done: {
+          icon: '✓',
+          title: 'Acompanhamento concluído',
+          desc: 'O ciclo de triagem está finalizado. Continue acompanhando-se com seu médico de confiança.',
+          extra: '',
+        },
+      };
+      const c = cards[state];
+
+      document.getElementById('content').innerHTML = `
+        <div class="status-card">
+          <div class="status-icon ${state}">${c.icon}</div>
+          <h2>${c.title}</h2>
+          <p>${c.desc}</p>
+          ${c.extra}
+        </div>
+
+        <!-- Resumo rápido -->
+        <div class="grid gap-4" style="grid-template-columns: 1fr 1fr; margin-top: var(--space-5);">
+          <div class="card">
+            <h3 style="font-family: var(--font-body); font-size: var(--fs-sm); text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-muted); margin-bottom: var(--space-3);">
+              Próxima consulta
+            </h3>
+            ${nextAppt ? `
+              <div style="font-size: var(--fs-lg); font-weight: 600; margin-bottom: var(--space-1);">
+                ${formatDateBR(nextAppt.scheduled_at)}
+              </div>
+              <div class="text-small text-muted">
+                Consulta online
+              </div>
+              <div class="text-small" style="margin-top: var(--space-2);">
+                Com ${escapeHtmlGlobal(nextAppt.doctor_name)}
+              </div>
+              ${nextAppt.meeting_link ? `
+                <div style="margin-top: var(--space-3);">
+                  <a href="${escapeHtmlGlobal(nextAppt.meeting_link)}" target="_blank" rel="noopener"
+                     class="btn btn-primary btn-sm">
+                    🎥 Entrar na reunião
+                  </a>
+                  <div class="text-small text-muted" style="margin-top: var(--space-2);">
+                    Clique pra abrir o link em uma nova aba próximo ao horário da consulta.
+                  </div>
+                </div>
+              ` : `
+                <div class="text-small text-muted" style="margin-top: var(--space-3);">
+                  O link da reunião ainda não foi cadastrado pela clínica.
+                  Ele aparecerá aqui assim que estiver disponível.
+                </div>
+              `}
+              <div style="margin-top: var(--space-3); display: flex; gap: var(--space-2);">
+                <button class="btn btn-ghost btn-sm" onclick="cancelAppointment(${nextAppt.id})">
+                  Cancelar consulta
+                </button>
+              </div>
+            ` : `
+              <div class="text-small text-muted">Nenhuma consulta agendada no momento.</div>
+              ${lastScreening ? `
+                <div style="margin-top: var(--space-3);">
+                  <a href="agendar.html" class="btn btn-primary btn-sm">📅 Agendar consulta</a>
+                </div>
+              ` : ''}
+            `}
+          </div>
+
+          <div class="card">
+            <h3 style="font-family: var(--font-body); font-size: var(--fs-sm); text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-muted); margin-bottom: var(--space-3);">
+              Triagens realizadas
+            </h3>
+            <div style="font-family: var(--font-display); font-size: var(--fs-3xl); font-weight: 500;">
+              ${data.screenings.length}
+            </div>
+            <div class="text-small text-muted">
+              ${data.screenings.length > 0 ? `Última: ${formatDateOnly(data.screenings[0].submitted_at || data.screenings[0].created_at)}` : ''}
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    async function cancelAppointment(id) {
+      if (!confirm('Tem certeza que quer cancelar esta consulta?\n\nSe quiser remarcar, será necessário cancelar primeiro e depois agendar de novo.')) {
+        return;
+      }
+      try {
+        await api.post('/appointments/cancel-self', { appointment_id: id });
+        toast.success('Consulta cancelada.');
+        load();
+      } catch (err) {
+        toast.error(err.message || 'Não foi possível cancelar.');
+      }
+    }
+
+    load();
+  </script>
+</body>
+</html>

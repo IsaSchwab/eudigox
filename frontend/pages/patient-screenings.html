@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Minhas triagens — SGX</title>
+  <link rel="stylesheet" href="../assets/css/base.css">
+  <link rel="stylesheet" href="../assets/css/dashboard.css">
+</head>
+<body>
+
+  <div class="dash" id="dash-root">
+    <main class="dash-main">
+
+      <header class="dash-header">
+        <div>
+          <h1 class="dash-title">Minhas triagens</h1>
+          <p class="dash-subtitle">Histórico de avaliações que você realizou.</p>
+        </div>
+        <a href="triagem.html" class="btn btn-primary">+ Nova triagem</a>
+      </header>
+
+      <div id="content">
+        <div class="empty-state">Carregando...</div>
+      </div>
+
+    </main>
+  </div>
+
+  <script src="../assets/js/api.js"></script>
+  <script src="../assets/js/shared.js"></script>
+  <script>
+    if (!requireAuth(['patient'])) { /* redireciona */ }
+
+    document.getElementById('dash-root').insertAdjacentHTML('afterbegin', renderSidebar('history'));
+
+    async function load() {
+      try {
+        const data = await api.get('/patients/me');
+        renderList(data.screenings || []);
+      } catch (err) {
+        if (err.status === 401) {
+          api.clearSession();
+          location.href = 'login.html';
+          return;
+        }
+        if (err.status === 404) {
+          document.getElementById('content').innerHTML = `
+            <div class="empty-state">
+              <div class="icon">📋</div>
+              <p>Você ainda não fez nenhuma triagem.</p>
+              <a href="triagem.html" class="btn btn-primary" style="margin-top: var(--space-4);">
+                Iniciar primeira triagem →
+              </a>
+            </div>
+          `;
+          return;
+        }
+        document.getElementById('content').innerHTML = `
+          <div class="empty-state">
+            <div class="icon">⚠️</div>
+            <p>${escapeHtmlGlobal(err.message || 'Erro ao carregar.')}</p>
+          </div>
+        `;
+      }
+    }
+
+    function renderList(screenings) {
+      if (screenings.length === 0) {
+        document.getElementById('content').innerHTML = `
+          <div class="empty-state">
+            <div class="icon">📋</div>
+            <p>Nenhuma triagem encontrada.</p>
+            <a href="triagem.html" class="btn btn-primary" style="margin-top: var(--space-4);">
+              Iniciar triagem →
+            </a>
+          </div>
+        `;
+        return;
+      }
+
+      // Mostra triagens em formato de cards (mais leve para paciente)
+      // Não exibe score nem prioridade — paciente não vê esses dados.
+      const labels = {
+        draft:     'Rascunho',
+        submitted: 'Enviada para análise',
+        reviewed:  'Revisada pela equipe',
+        closed:    'Encerrada',
+      };
+
+      const desc = {
+        draft:     'Triagem não enviada.',
+        submitted: 'Aguardando análise da equipe clínica.',
+        reviewed:  'Profissional revisou a sua triagem. Você receberá orientações sobre os próximos passos.',
+        closed:    'Esta triagem foi encerrada após avaliação completa.',
+      };
+
+      document.getElementById('content').innerHTML = `
+        <div class="history-list">
+          ${screenings.map((s, idx) => `
+            <div class="history-item">
+              <div>
+                <div class="history-date">
+                  ${formatDateBR(s.submitted_at || s.created_at)}
+                </div>
+                <div style="font-weight: 600; font-size: var(--fs-lg); margin-bottom: var(--space-2); font-family: var(--font-display);">
+                  Triagem ${screenings.length - idx} de ${screenings.length}
+                </div>
+                <div style="font-size: var(--fs-sm); color: var(--color-text-muted); margin-bottom: var(--space-2);">
+                  ${escapeHtmlGlobal(desc[s.status] || '')}
+                </div>
+                ${s.reviewed_at ? `
+                  <div class="text-small text-muted">
+                    Revisada em ${formatDateBR(s.reviewed_at)}${s.performed_by ? ' por ' + escapeHtmlGlobal(s.performed_by) : ''}
+                  </div>
+                ` : ''}
+              </div>
+              <div style="text-align: right;">
+                <span class="badge badge-info">${escapeHtmlGlobal(labels[s.status] || s.status)}</span>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+
+        <div style="margin-top: var(--space-5); padding: var(--space-4); background: var(--color-primary-50); border-radius: var(--radius); font-size: var(--fs-sm); color: var(--color-text-muted);">
+          ℹ️ Os resultados detalhados (score e recomendações) só são liberados após análise médica. Você será notificado quando estiverem disponíveis.
+        </div>
+      `;
+    }
+
+    load();
+  </script>
+</body>
+</html>

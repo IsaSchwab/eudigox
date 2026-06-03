@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Entrar — Eu Digo X</title>
+  <link rel="stylesheet" href="../assets/css/base.css">
+  <link rel="stylesheet" href="../assets/css/auth.css">
+</head>
+<body>
+
+  <div class="auth-page">
+
+    <!-- Lado esquerdo (imagem/branding) -->
+    <aside class="auth-aside">
+      <a href="index.html" class="logo">
+        <span class="logo-mark">🦋</span> Eu Digo X
+      </a>
+
+      <div class="auth-quote">
+        <h2>Cada diagnóstico precoce é uma trajetória de cuidado que começa mais cedo.</h2>
+        <p>O programa Eu Digo X conecta famílias e profissionais de saúde para encurtar a jornada até o diagnóstico da Síndrome do X Frágil.</p>
+      </div>
+
+      <div class="text-small" style="opacity: 0.7;">
+        © 2026 Eu Digo X · Instituto Buko Kaesemodel
+      </div>
+    </aside>
+
+    <!-- Lado direito (formulário) -->
+    <main class="auth-main">
+      <div class="auth-card">
+        <h1>Bem-vindo de volta</h1>
+        <p class="lead">Entre com sua conta para continuar.</p>
+
+        <form id="login-form">
+          <div class="field">
+            <label for="email">E-mail</label>
+            <input class="input" id="email" type="email" placeholder="seu@email.com" autocomplete="email" required>
+          </div>
+
+          <div class="field">
+            <label for="password">Senha</label>
+            <input class="input" id="password" type="password" placeholder="Sua senha" autocomplete="current-password" required>
+          </div>
+
+          <div class="auth-meta">
+            <label style="display: flex; align-items: center; gap: var(--space-2); font-weight: 400;">
+              <input type="checkbox" id="remember"> Lembrar-me
+            </label>
+            <a href="#">Esqueci minha senha</a>
+          </div>
+
+          <button type="submit" id="btn-login" class="btn btn-primary btn-block btn-lg">Entrar</button>
+        </form>
+
+        <div class="auth-divider"><span>ou</span></div>
+
+        <div class="auth-bottom">
+          Ainda não fez sua triagem? <a href="triagem.html">Comece aqui</a>
+        </div>
+      </div>
+    </main>
+
+  </div>
+
+  <script src="../assets/js/api.js"></script>
+  <script>
+    // Se já estiver logado, redireciona direto
+    if (api.isAuthenticated()) {
+      const user = api.getUser();
+      if (user) redirectByRole(user.role);
+    }
+
+    function redirectByRole(role) {
+      const map = {
+        patient:      '../pages/patient-dashboard.html',
+        nurse:        '../pages/clinic-dashboard.html',
+        doctor:       '../pages/clinic-dashboard.html',
+        admin:        '../pages/admin-users.html',
+        receptionist: '../pages/reception-calendar.html',
+      };
+      location.href = map[role] || '../pages/index.html';
+    }
+
+    document.getElementById('login-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('btn-login');
+      btn.disabled = true;
+      btn.textContent = 'Entrando...';
+
+      try {
+        const data = await api.post('/auth/login', {
+          email:    document.getElementById('email').value,
+          password: document.getElementById('password').value,
+        });
+
+        api.setUser(data.user);
+
+        toast.success(`Olá, ${data.user.full_name.split(' ')[0]}!`);
+        setTimeout(() => redirectByRole(data.user.role), 600);
+
+      } catch (err) {
+        btn.disabled = false;
+        btn.textContent = 'Entrar';
+        toast.error(err.message || 'Erro ao entrar.');
+      }
+    });
+  </script>
+</body>
+</html>
