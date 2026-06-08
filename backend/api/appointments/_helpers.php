@@ -120,11 +120,32 @@ function appointments_slots_for_date(PDO $pdo, string $date): array
     foreach (appointments_business_hours() as $h) {
         $totalDocs = count($doctorIds);
         $busyDocs  = isset($occupied[$h]) ? count($occupied[$h]) : 0;
+        $available = $busyDocs < $totalDocs;
+        // Horário do dia de HOJE que já passou não pode mais ser marcado.
+        if ($available && appointments_slot_is_past($date, $h)) {
+            $available = false;
+        }
         $slots[$h] = [
-            'available' => $busyDocs < $totalDocs,
+            'available' => $available,
         ];
     }
     return $slots;
+}
+
+/**
+ * Diz se um slot (data + hora "HH:MM") já passou em relação ao horário atual.
+ * Só importa quando a data é HOJE — para datas futuras nunca é passado, e para
+ * datas anteriores já é tratado em outras camadas. Usa o fuso configurado no
+ * config.php (America/Sao_Paulo).
+ */
+function appointments_slot_is_past(string $date, string $time): bool
+{
+    try {
+        $slot = new DateTime($date . ' ' . $time . ':00');
+    } catch (Throwable $e) {
+        return false;
+    }
+    return $slot <= new DateTime('now');
 }
 
 /**

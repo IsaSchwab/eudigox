@@ -146,6 +146,8 @@
       selectedDate: null,        // "YYYY-MM-DD"
       slots: null,               // resposta de /available-slots
       selectedTime: null,        // "HH:MM"
+      selectedReason: '',        // "first_visit" | "return" | "other"
+      reasonOther: '',           // texto livre quando motivo = "other"
       booking: false,
     };
 
@@ -297,6 +299,19 @@
             <p style="margin-bottom: var(--space-3);">
               Confirmar consulta para <strong>${dateLabel} às ${state.selectedTime}</strong>?
             </p>
+            <div style="margin-bottom: var(--space-3);">
+              <label for="reason-select" style="display:block; font-weight:600; margin-bottom:4px;">Motivo da consulta</label>
+              <select id="reason-select" class="select">
+                <option value="">Selecione...</option>
+                <option value="first_visit" ${state.selectedReason === 'first_visit' ? 'selected' : ''}>Primeira consulta</option>
+                <option value="return" ${state.selectedReason === 'return' ? 'selected' : ''}>Retorno</option>
+                <option value="other" ${state.selectedReason === 'other' ? 'selected' : ''}>Outro</option>
+              </select>
+            </div>
+            <div id="reason-other-wrap" style="margin-bottom: var(--space-3); ${state.selectedReason === 'other' ? '' : 'display:none;'}">
+              <input id="reason-other" class="input" type="text" maxlength="255"
+                     placeholder="Descreva o motivo" value="${escapeHtmlGlobal(state.reasonOther)}">
+            </div>
             <p class="text-small text-muted" style="margin-bottom: var(--space-3);">
               A consulta será online. O link será enviado pela clínica por WhatsApp ou e-mail próximo à data.
             </p>
@@ -342,6 +357,16 @@
         };
       });
 
+      // Motivo da consulta
+      const reasonSel = document.getElementById('reason-select');
+      if (reasonSel) reasonSel.onchange = (e) => {
+        state.selectedReason = e.target.value;
+        const wrap = document.getElementById('reason-other-wrap');
+        if (wrap) wrap.style.display = (e.target.value === 'other') ? '' : 'none';
+      };
+      const reasonOther = document.getElementById('reason-other');
+      if (reasonOther) reasonOther.oninput = (e) => { state.reasonOther = e.target.value; };
+
       // Confirmar
       const btn = document.getElementById('btn-confirm');
       if (btn) btn.onclick = confirmBooking;
@@ -349,11 +374,11 @@
 
     function navigateMonth(delta) {
       const now = new Date(state.currentMonth.year, state.currentMonth.month - 1 + delta, 1);
-      const today = new Date(); today.setDate(1);
+      const today = new Date(); today.setDate(1); today.setHours(0, 0, 0, 0);
       // Não deixa voltar antes do mês atual
       if (now < today) return;
       // Não deixa avançar muito (máx 6 meses à frente)
-      const max = new Date(); max.setMonth(max.getMonth() + 6); max.setDate(1);
+      const max = new Date(); max.setMonth(max.getMonth() + 6); max.setDate(1); max.setHours(0, 0, 0, 0);
       if (now > max) return;
       state.currentMonth = { year: now.getFullYear(), month: now.getMonth() + 1 };
       loadCalendar();
@@ -361,11 +386,21 @@
 
     async function confirmBooking() {
       if (!state.selectedDate || !state.selectedTime) return;
+      if (!state.selectedReason) {
+        toast.error('Selecione o motivo da consulta.');
+        return;
+      }
+      if (state.selectedReason === 'other' && !state.reasonOther.trim()) {
+        toast.error('Descreva o motivo da consulta.');
+        return;
+      }
       state.booking = true; render();
       try {
         const data = await api.post('/appointments/book-self', {
           date: state.selectedDate,
           time: state.selectedTime,
+          visit_reason: state.selectedReason,
+          visit_reason_other: state.selectedReason === 'other' ? state.reasonOther.trim() : null,
         });
         renderBookedSuccess(data);
       } catch (err) {

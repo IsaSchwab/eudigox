@@ -161,6 +161,8 @@
       selectedDate: null,
       slots: null,           // resposta de /available-slots
       selectedTime: null,
+      selectedReason: '',    // "first_visit" | "return" | "other"
+      reasonOther: '',       // texto livre quando motivo = "other"
       notes: '',
       booking: false,
     };
@@ -301,6 +303,22 @@
             em <strong>${dateLabel} às ${state.selectedTime}</strong>.
           </p>
           <div class="field" style="margin-bottom: var(--space-3);">
+            <label for="reason-select" style="display: block; font-size: var(--fs-sm); font-weight: 600; margin-bottom: 4px;">
+              Motivo da consulta
+            </label>
+            <select id="reason-select" class="select" style="width:100%;">
+              <option value="">Selecione...</option>
+              <option value="first_visit" ${state.selectedReason === 'first_visit' ? 'selected' : ''}>Primeira consulta</option>
+              <option value="return" ${state.selectedReason === 'return' ? 'selected' : ''}>Retorno</option>
+              <option value="other" ${state.selectedReason === 'other' ? 'selected' : ''}>Outro</option>
+            </select>
+          </div>
+          <div id="reason-other-wrap" class="field" style="margin-bottom: var(--space-3); ${state.selectedReason === 'other' ? '' : 'display:none;'}">
+            <input id="reason-other" type="text" maxlength="255"
+                   style="width:100%; padding: var(--space-2); border: 1px solid var(--color-border); border-radius: 6px; font-family: inherit;"
+                   placeholder="Descreva o motivo" value="${escapeHtml(state.reasonOther)}">
+          </div>
+          <div class="field" style="margin-bottom: var(--space-3);">
             <label for="notes-input" style="display: block; font-size: var(--fs-sm); font-weight: 600; margin-bottom: 4px;">
               Observações (opcional)
             </label>
@@ -357,6 +375,15 @@
 
       const notesEl = document.getElementById('notes-input');
       if (notesEl) notesEl.oninput = (e) => { state.notes = e.target.value; };
+
+      const reasonSel = document.getElementById('reason-select');
+      if (reasonSel) reasonSel.onchange = (e) => {
+        state.selectedReason = e.target.value;
+        const wrap = document.getElementById('reason-other-wrap');
+        if (wrap) wrap.style.display = (e.target.value === 'other') ? '' : 'none';
+      };
+      const reasonOtherEl = document.getElementById('reason-other');
+      if (reasonOtherEl) reasonOtherEl.oninput = (e) => { state.reasonOther = e.target.value; };
 
       const btn = document.getElementById('btn-confirm');
       if (btn) btn.onclick = () => confirmBooking();
@@ -448,9 +475,9 @@
 
     async function navigateMonth(delta) {
       const dt = new Date(state.currentYear, state.currentMonth - 1 + delta, 1);
-      const today = new Date(); today.setDate(1);
+      const today = new Date(); today.setDate(1); today.setHours(0, 0, 0, 0);
       if (dt < today) return; // não deixa voltar
-      const max = new Date(); max.setMonth(max.getMonth() + 6); max.setDate(1);
+      const max = new Date(); max.setMonth(max.getMonth() + 6); max.setDate(1); max.setHours(0, 0, 0, 0);
       if (dt > max) return;
       state.currentYear  = dt.getFullYear();
       state.currentMonth = dt.getMonth() + 1;
@@ -462,6 +489,14 @@
 
     async function confirmBooking(force = false) {
       if (!state.patient || !state.selectedDate || !state.selectedTime) return;
+      if (!state.selectedReason) {
+        toast.error('Selecione o motivo da consulta.');
+        return;
+      }
+      if (state.selectedReason === 'other' && !state.reasonOther.trim()) {
+        toast.error('Descreva o motivo da consulta.');
+        return;
+      }
       state.booking = true; render();
 
       try {
@@ -470,6 +505,8 @@
           date:       state.selectedDate,
           time:       state.selectedTime,
           notes:      state.notes || null,
+          visit_reason:       state.selectedReason,
+          visit_reason_other: state.selectedReason === 'other' ? state.reasonOther.trim() : null,
           force:      force ? true : undefined,
         });
         showSuccess(data);

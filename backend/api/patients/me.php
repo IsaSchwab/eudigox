@@ -47,10 +47,42 @@ $stmt = $pdo->prepare("
 ");
 $stmt->execute([':pid' => $patientId]);
 $screenings = $stmt->fetchAll();
- 
+
+// 2b) Respostas de cada triagem — pra mostrar ao paciente o que ele mesmo
+//     marcou. São dados do próprio paciente, então é ok exibir a ele.
+if ($screenings) {
+    $sids = array_map(fn($s) => (int)$s['id'], $screenings);
+    $ph   = implode(',', array_fill(0, count($sids), '?'));
+    $stmtAns = $pdo->prepare("
+        SELECT sa.screening_id, sa.answer, i.lay_label, i.category, i.display_order
+        FROM screening_answers sa
+        JOIN indicators i ON i.id = sa.indicator_id
+        WHERE sa.screening_id IN ($ph)
+        ORDER BY i.category, i.display_order
+    ");
+    $stmtAns->execute($sids);
+    $answersByScreening = [];
+    foreach ($stmtAns->fetchAll() as $r) {
+        $sid = (int)$r['screening_id'];
+        if (!isset($answersByScreening[$sid])) {
+            $answersByScreening[$sid] = ['development' => [], 'behavioral' => [], 'physical' => []];
+        }
+        $cat = $r['category'];
+        if (!isset($answersByScreening[$sid][$cat])) $answersByScreening[$sid][$cat] = [];
+        $answersByScreening[$sid][$cat][] = [
+            'lay_label' => $r['lay_label'],
+            'answer'    => $r['answer'],
+        ];
+    }
+    foreach ($screenings as &$s) {
+        $s['answers_by_category'] = $answersByScreening[(int)$s['id']] ?? null;
+    }
+    unset($s);
+}
+
 // 3) Exames moleculares
 $stmt = $pdo->prepare("
-    SELECT e.id, e.exam_type, e.exam_date, e.result, e.laboratory, e.notes,
+    SELECT e.id, e.screening_id, e.exam_type, e.exam_date, e.result, e.laboratory, e.notes,
            u.full_name AS registered_by, e.created_at
     FROM molecular_exams e
     JOIN users u ON u.id = e.registered_by_user_id
