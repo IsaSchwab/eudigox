@@ -58,6 +58,28 @@ if ($dow >= 6) {
     ]);
 }
 
+// Horário de hoje que já passou não pode ser marcado.
+if (appointments_slot_is_past($date, $time)) {
+    Response::unprocessable('Esse horário já passou. Escolha um horário mais tarde ou outro dia.', [
+        'time' => 'Escolha um horário que ainda não passou.',
+    ]);
+}
+
+// Motivo da consulta (obrigatório): primeira consulta / retorno / outro.
+$visitReason      = $body['visit_reason'] ?? '';
+$visitReasonOther = isset($body['visit_reason_other']) ? trim((string)$body['visit_reason_other']) : '';
+if (!in_array($visitReason, ['first_visit', 'return', 'other'], true)) {
+    Response::unprocessable('Selecione o motivo da consulta.', [
+        'visit_reason' => 'Escolha o motivo: primeira consulta, retorno ou outro.',
+    ]);
+}
+if ($visitReason === 'other' && $visitReasonOther === '') {
+    Response::unprocessable('Descreva o motivo da consulta.', [
+        'visit_reason_other' => 'Obrigatório quando o motivo é "Outro".',
+    ]);
+}
+$visitReasonOtherDb = $visitReason === 'other' ? mb_substr($visitReasonOther, 0, 255) : null;
+
 $pdo = Database::getConnection();
 
 // Pega o paciente
@@ -125,14 +147,18 @@ try {
     }
 
     $stmt = $pdo->prepare("
-        INSERT INTO appointments (patient_id, doctor_user_id, scheduled_at, status, notes)
-        VALUES (:pid, :did, :sa, 'scheduled', :n)
+        INSERT INTO appointments
+            (patient_id, doctor_user_id, scheduled_at, status, notes, visit_reason, visit_reason_other)
+        VALUES
+            (:pid, :did, :sa, 'scheduled', :n, :vr, :vro)
     ");
     $stmt->execute([
         ':pid' => $patientId,
         ':did' => $chosenDoctor,
         ':sa'  => $scheduledAt,
         ':n'   => 'Agendada pelo próprio paciente. Consulta online — link enviado pela clínica antes da data.',
+        ':vr'  => $visitReason,
+        ':vro' => $visitReasonOtherDb,
     ]);
     $appointmentId = (int)$pdo->lastInsertId();
 
