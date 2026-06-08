@@ -157,7 +157,8 @@
 
     const params      = new URLSearchParams(location.search);
     const patientId   = parseInt(params.get('id'), 10);
-    const screeningId = parseInt(params.get('screening'), 10) || null;
+    // Pode mudar quando a médica troca de triagem pelo seletor / pelo histórico.
+    let screeningId   = parseInt(params.get('screening'), 10) || null;
     // Modo de visualização: 'view' = somente leitura (vindo de Triagens)
     //                       default = completo (vindo de Consultas ou direto)
     const viewMode = params.get('mode') === 'view';
@@ -247,8 +248,10 @@
       // Detecta se tem consulta agendada para HOJE com este paciente (e com este médico)
       const todayApt = findTodayAppointment();
       const canFinishConsulta = !viewMode && user.role === 'doctor' && todayApt;
-      // Consulta de HOJE já finalizada (realizada) -> mostra o selo "Consulta finalizada"
-      const todayDone = !canFinishConsulta && user.role === 'doctor' && findTodayCompletedAppointment();
+      // Selo "Consulta finalizada": só quando a de hoje foi realizada E NÃO há
+      // outra consulta agendada (se há próxima marcada, o foco passa a ser a próxima).
+      const todayDone = !canFinishConsulta && user.role === 'doctor'
+        && findTodayCompletedAppointment() && !findNextAppointment();
 
       document.getElementById('patient-header').innerHTML = `
         <div class="patient-header">
@@ -489,59 +492,140 @@
           </div>
         </div>
 
-        ${renderUploadsCard(uploads)}
         ${renderSocioeconomicCard(socio)}
       `;
     }
 
-    function renderUploadsCard(uploads) {
+    // Anexos (fotos + requisição) de UMA triagem — mostrados junto dos indicadores
+    // quando a médica seleciona a triagem (em vez de soltos na Visão geral).
+    function renderUploadsForScreening(sid) {
+      const labels = { photo_front: 'Foto de frente', photo_side: 'Foto de perfil', medical_request: 'Requisição médica' };
+      const order = ['photo_front', 'photo_side', 'medical_request'];
+      const ups = (patientData && patientData.uploads) || [];
+      const screenings = (patientData && patientData.screenings) || [];
+      const oldestId = screenings.length ? Number(screenings[screenings.length - 1].id) : null;
+      const isOldest = Number(sid) === oldestId;
       const byKind = {};
-      (uploads || []).forEach(u => { if (!byKind[u.kind]) byKind[u.kind] = u; });
+      ups.forEach(u => {
+        // Anexos desta triagem: o screening_id bate; ou, se for legado (sem vínculo),
+        // mostra na triagem mais antiga (vieram do cadastro inicial).
+        const matches = Number(u.screening_id) === Number(sid) || (!u.screening_id && isOldest);
+        if (matches && !byKind[u.kind]) byKind[u.kind] = u;
+      });
+      const slot = (kind) => {
+        const u = byKind[kind];
+        if (!u) {
+          return `<div style="padding: var(--space-3); border: 1px dashed var(--color-border); border-radius: 8px;">
+            <div class="text-small text-muted">${labels[kind]}</div>
+            <div class="text-small" style="margin-top: var(--space-1); color: var(--color-text-muted);">— não enviado —</div>
+          </div>`;
+        }
+        const url = `/sgx/backend/api/uploads/get.php?id=${u.id}`;
+        const isImg = u.mime_type && u.mime_type.startsWith('image/');
+        return `<div style="padding: var(--space-3); border: 1px solid var(--color-border); border-radius: 8px;">
+          <div class="text-small text-muted">${labels[kind]}</div>
+          <div style="margin-top: var(--space-2);">
+            ${ isImg
+              ? `<a href="${url}" target="_blank" rel="noopener"><img src="${url}" alt="${labels[kind]}" style="width: 100%; max-height: 160px; object-fit: cover; border-radius: 6px;" /></a>`
+              : `<a href="${url}" target="_blank" rel="noopener" class="btn btn-ghost" style="display: inline-block;">📄 Abrir ${escapeHtmlGlobal(u.original_name)}</a>` }
+          </div>
+          <div class="text-small text-muted" style="margin-top: var(--space-2);">
+            ${escapeHtmlGlobal(u.original_name)}<br>${formatDateBR(u.created_at)} · ${Math.round((u.size_bytes || 0) / 1024)} KB
+          </div>
+        </div>`;
+      };
+      return `
+        <div class="card" style="margin-bottom: var(--space-4);">
+          <h3 style="font-family: var(--font-body); font-size: var(--fs-base); margin-bottom: var(--space-3);">Anexos desta triagem</h3>
+          <div class="grid gap-3" style="grid-template-columns: repeat(3, 1fr);">
+            ${order.map(slot).join('')}
+          </div>
+        </div>`;
+    }
+
+    function renderUploadsCard(uploads) {
       const labels = {
         photo_front:     'Foto de frente',
         photo_side:      'Foto de perfil',
         medical_request: 'Requisição médica',
       };
       const order = ['photo_front', 'photo_side', 'medical_request'];
+      const ups = uploads || [];
+
+      // Agrupa por triagem (screening_id). 'none' = anexo antigo, sem vínculo.
+      // Os uploads vêm ordenados por created_at DESC, então o 1º de cada tipo
+      // dentro do grupo é o mais recente.
+      const groups = {};
+      ups.forEach(u => {
+        const sid = u.screening_id ? String(u.screening_id) : 'none';
+        if (!groups[sid]) groups[sid] = {};
+        if (!groups[sid][u.kind]) groups[sid][u.kind] = u;
+      });
+
+      const screenings = (patientData && patientData.screenings) || [];
+      // Ordem: triagens mais recentes primeiro, depois "sem vínculo".
+      const sidOrder = screenings.map(s => String(s.id)).filter(sid => groups[sid]);
+      Object.keys(groups).forEach(sid => {
+        if (sid !== 'none' && !sidOrder.includes(sid)) sidOrder.push(sid);
+      });
+      if (groups['none']) sidOrder.push('none');
+
+      const renderSlot = (kind, u) => {
+        if (!u) {
+          return `
+            <div style="padding: var(--space-3); border: 1px dashed var(--color-border); border-radius: 8px;">
+              <div class="text-small text-muted">${labels[kind]}</div>
+              <div class="text-small" style="margin-top: var(--space-1); color: var(--color-text-muted);">— não enviado —</div>
+            </div>`;
+        }
+        const url = `/sgx/backend/api/uploads/get.php?id=${u.id}`;
+        const isImg = u.mime_type && u.mime_type.startsWith('image/');
+        return `
+          <div style="padding: var(--space-3); border: 1px solid var(--color-border); border-radius: 8px;">
+            <div class="text-small text-muted">${labels[kind]}</div>
+            <div style="margin-top: var(--space-2);">
+              ${ isImg
+                ? `<a href="${url}" target="_blank" rel="noopener"><img src="${url}" alt="${labels[kind]}" style="width: 100%; max-height: 160px; object-fit: cover; border-radius: 6px;" /></a>`
+                : `<a href="${url}" target="_blank" rel="noopener" class="btn btn-ghost" style="display: inline-block;">📄 Abrir ${escapeHtmlGlobal(u.original_name)}</a>` }
+            </div>
+            <div class="text-small text-muted" style="margin-top: var(--space-2);">
+              ${escapeHtmlGlobal(u.original_name)}<br>
+              ${formatDateBR(u.created_at)} · ${Math.round((u.size_bytes || 0) / 1024)} KB
+            </div>
+          </div>`;
+      };
+
+      let inner;
+      if (sidOrder.length === 0) {
+        inner = '<p class="text-small text-muted">Nenhum anexo enviado.</p>';
+      } else {
+        inner = sidOrder.map(sid => {
+          let titulo;
+          if (sid === 'none') {
+            titulo = 'Anexos sem triagem vinculada';
+          } else {
+            const sc = screenings.find(s => String(s.id) === String(sid));
+            titulo = sc
+              ? `Triagem #${sid} · ${formatDateBR(sc.submitted_at || sc.created_at)}`
+              : `Triagem #${sid}`;
+          }
+          const g = groups[sid];
+          return `
+            <div style="margin-top: var(--space-4);">
+              <div class="text-small text-muted" style="text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: var(--space-2);">${escapeHtmlGlobal(titulo)}</div>
+              <div class="grid gap-3" style="grid-template-columns: repeat(3, 1fr);">
+                ${order.map(kind => renderSlot(kind, g[kind])).join('')}
+              </div>
+            </div>`;
+        }).join('');
+      }
 
       return `
         <div class="card" style="margin-top: var(--space-4);">
-          <h3 style="font-family: var(--font-body); font-size: var(--fs-base); margin-bottom: var(--space-4);">
+          <h3 style="font-family: var(--font-body); font-size: var(--fs-base); margin-bottom: var(--space-2);">
             Anexos enviados pelo paciente
           </h3>
-          <div class="grid gap-3" style="grid-template-columns: repeat(3, 1fr);">
-            ${order.map(kind => {
-              const u = byKind[kind];
-              if (!u) {
-                return `
-                  <div style="padding: var(--space-3); border: 1px dashed var(--color-border); border-radius: 8px;">
-                    <div class="text-small text-muted">${labels[kind]}</div>
-                    <div class="text-small" style="margin-top: var(--space-1); color: var(--color-text-muted);">— não enviado —</div>
-                  </div>
-                `;
-              }
-              const url = `/sgx/backend/api/uploads/get.php?id=${u.id}`;
-              const isImg = u.mime_type && u.mime_type.startsWith('image/');
-              return `
-                <div style="padding: var(--space-3); border: 1px solid var(--color-border); border-radius: 8px;">
-                  <div class="text-small text-muted">${labels[kind]}</div>
-                  <div style="margin-top: var(--space-2);">
-                    ${ isImg
-                      ? `<a href="${url}" target="_blank" rel="noopener">
-                          <img src="${url}" alt="${labels[kind]}" style="width: 100%; max-height: 160px; object-fit: cover; border-radius: 6px;" />
-                         </a>`
-                      : `<a href="${url}" target="_blank" rel="noopener" class="btn btn-ghost" style="display: inline-block;">
-                          📄 Abrir ${escapeHtmlGlobal(u.original_name)}
-                         </a>` }
-                  </div>
-                  <div class="text-small text-muted" style="margin-top: var(--space-2);">
-                    ${escapeHtmlGlobal(u.original_name)}<br>
-                    ${formatDateBR(u.created_at)} · ${Math.round((u.size_bytes || 0) / 1024)} KB
-                  </div>
-                </div>
-              `;
-            }).join('')}
-          </div>
+          ${inner}
         </div>
       `;
     }
@@ -714,7 +798,49 @@
         </div>
       `;
 
-      document.getElementById('tab-indicators').innerHTML = header + editNotice + scoreCard + html;
+      // Cabeçalho + seletor de triagem (a tela das médicas é "ciente de triagem").
+      const allScr = (patientData && patientData.screenings) || [];
+      const cur    = allScr.find(sc => Number(sc.id) === Number(s.screening.id));
+      const curDate = cur ? formatDateBR(cur.submitted_at || cur.created_at) : '';
+      const triagemBar = `
+        <div class="card" style="margin-bottom: var(--space-4); display:flex; align-items:flex-end; justify-content:space-between; gap: var(--space-3); flex-wrap:wrap;">
+          <div>
+            <div class="text-small text-muted">Triagem selecionada</div>
+            <div style="font-weight:600; font-size: var(--fs-lg);">Triagem #${s.screening.id}${curDate ? ' · ' + curDate : ''}</div>
+          </div>
+          ${ allScr.length > 1 ? `
+            <div class="field" style="margin:0; min-width: 240px;">
+              <label class="text-small text-muted" for="triagem-select" style="margin-bottom:4px;">Ver outra triagem</label>
+              <select class="select" id="triagem-select" onchange="selectScreening(this.value)">
+                ${allScr.map(sc => `<option value="${sc.id}" ${Number(sc.id) === Number(s.screening.id) ? 'selected' : ''}>Triagem #${sc.id} · ${formatDateBR(sc.submitted_at || sc.created_at)}</option>`).join('')}
+              </select>
+            </div>
+          ` : '' }
+        </div>`;
+
+      // Anexos da triagem selecionada aparecem junto dos indicadores (a não ser
+      // no modo edição, pra não poluir).
+      const anexos = indicatorsEditMode ? '' : renderUploadsForScreening(s.screening.id);
+      document.getElementById('tab-indicators').innerHTML = triagemBar + header + editNotice + scoreCard + anexos + html;
+    }
+
+    // Troca a triagem em foco (pelo seletor da aba ou pelo clique no histórico),
+    // recarrega indicadores + anotações e vai pra aba de indicadores. Sem reload.
+    async function selectScreening(sid) {
+      sid = parseInt(sid, 10);
+      if (!sid) return;
+      screeningId = sid;          // afeta o "isLatest" (permissão de editar)
+      indicatorsEditMode = false;
+      editedAnswers = {};
+      try {
+        const sdata = await api.get('/screenings/get?id=' + sid);
+        screeningDetail = sdata;
+        renderIndicators(sdata);
+        renderNotes(sdata.screening);
+        activateTab('indicators');
+      } catch (err) {
+        toast.error(err.message || 'Não foi possível abrir essa triagem.');
+      }
     }
 
     /* ===== Edição de respostas (handlers globais) ===== */
@@ -799,11 +925,12 @@
         };
         html += `<div class="history-list" style="margin-bottom: var(--space-5);">`
           + appts.map(a => {
-            // Só consulta FINALIZADA (realizada) abre o prontuário completo.
-            const isCompleted = a.status === 'completed';
+            // Consulta REALIZADA ou AGENDADA abre o prontuário. Na agendada, a médica
+            // já pode adiantar a anotação clínica (fica pronta quando a consulta acontecer).
+            const canOpen = a.status === 'completed' || a.status === 'scheduled';
             return `
-            <div class="history-item${isCompleted ? ' consulta-item' : ''}"
-                 ${isCompleted ? `style="cursor: pointer;" onclick="openProntuario(${a.id})"` : ''}>
+            <div class="history-item${canOpen ? ' consulta-item' : ''}"
+                 ${canOpen ? `style="cursor: pointer;" onclick="openProntuario(${a.id})"` : ''}>
               <div>
                 <div class="history-date">${formatDateBR(a.scheduled_at)}</div>
                 <div style="font-weight: 600; margin-bottom: var(--space-1);">
@@ -816,7 +943,7 @@
               </div>
               <div style="text-align: right; white-space: nowrap;">
                 ${STATUS_BADGES[a.status] || a.status}
-                ${isCompleted ? '<div class="text-small" style="margin-top: var(--space-2); color: var(--color-primary); font-weight: 600;">ver prontuário →</div>' : ''}
+                ${canOpen ? `<div class="text-small" style="margin-top: var(--space-2); color: var(--color-primary); font-weight: 600;">${a.status === 'scheduled' ? 'abrir / anotar →' : 'ver prontuário →'}</div>` : ''}
               </div>
             </div>`;
           }).join('') + '</div>';
@@ -828,7 +955,7 @@
         html += '<div class="empty-state"><div class="icon">📋</div>Sem triagens ainda.</div>';
       } else {
         html += `<div class="history-list">` + screenings.map(s => `
-          <div class="history-item ${s.priority || ''}" onclick="location.href='patient-detail.html?id=${patientId}&screening=${s.id}'">
+          <div class="history-item ${s.priority || ''}" style="cursor:pointer;" onclick="selectScreening(${s.id})">
             <div>
               <div class="history-date">${formatDateBR(s.submitted_at || s.created_at)}</div>
               <div style="font-weight: 600; margin-bottom: var(--space-1);">
@@ -1198,9 +1325,41 @@
         return;
       }
 
-      // Aba só-leitura: as anotações agora são feitas no PRONTUÁRIO da consulta
-      // (botão Revisar). Aqui só mostramos a anotação que já existe na triagem.
+      // Se há consulta AGENDADA desta médica, deixa anotar JÁ aqui (a anotação
+      // vai pra essa consulta e aparece no prontuário). Sem consulta agendada,
+      // a aba fica só-leitura (anota-se via Revisar no prontuário, após realizada).
       const hasNotes = !!(screening.clinical_notes && screening.clinical_notes.trim());
+      const legacyBlock = hasNotes ? `
+        <div style="margin-top: var(--space-4); padding-top: var(--space-3); border-top: 1px solid var(--color-border);">
+          <div class="text-small text-muted" style="text-transform:uppercase; letter-spacing:0.04em; margin-bottom: var(--space-2);">Anotação registrada na triagem #${screening.id}</div>
+          <div style="white-space: pre-wrap; line-height: var(--lh-normal); padding: var(--space-3); background: var(--color-bg-subtle); border-radius: var(--radius); border-left: 4px solid var(--color-primary);">
+            ${escapeHtmlGlobal(screening.clinical_notes)}
+          </div>
+        </div>` : '';
+
+      const upcoming = findNextOwnScheduled();
+      if (upcoming) {
+        document.getElementById('tab-notes').innerHTML = `
+          <div class="card">
+            <h3 style="font-family: var(--font-body); font-size: var(--fs-base); margin-bottom: var(--space-2);">
+              Anotações da consulta de ${formatDateBR(upcoming.scheduled_at)}
+            </h3>
+            <p class="text-small text-muted" style="margin-bottom: var(--space-3);">
+              Você pode adiantar as anotações desta consulta agendada — elas aparecem no prontuário.
+            </p>
+            <div id="notestab-list" style="margin-bottom: var(--space-3);"><div class="text-small text-muted">Carregando anotações...</div></div>
+            <div class="field">
+              <textarea class="textarea" id="notestab-input" rows="4" placeholder="Escreva uma anotação para esta consulta..."></textarea>
+            </div>
+            <button class="btn btn-primary" onclick="addNotesTabNote(${upcoming.id})">Adicionar anotação</button>
+            ${legacyBlock}
+          </div>
+        `;
+        loadNotesTabNotes(upcoming.id);
+        return;
+      }
+
+      // Sem consulta agendada -> só leitura.
       document.getElementById('tab-notes').innerHTML = `
         <div class="card">
           <h3 style="font-family: var(--font-body); font-size: var(--fs-base); margin-bottom: var(--space-3);">
@@ -1215,13 +1374,60 @@
           `}
           <div style="background:#f4f0fb; border:1px solid #d9cdee; border-radius: var(--radius); margin-top: var(--space-4); padding: var(--space-3);">
             <div class="text-small">
-              As anotações agora são feitas no <strong>prontuário da consulta</strong>.
-              Abra uma consulta marcada como <strong>"Realizada"</strong> na aba
+              As anotações são feitas na consulta. Quando houver uma <strong>consulta agendada</strong>,
+              você anota aqui; ou abra uma consulta <strong>"Realizada"</strong> no
               "Histórico de triagens" e use o botão <strong>Revisar</strong>.
             </div>
           </div>
         </div>
       `;
+    }
+
+    // Próxima consulta AGENDADA (de hoje em diante) desta médica — pra anotar adiantado.
+    function findNextOwnScheduled() {
+      if (!patientData || !patientData.appointments) return null;
+      const user = api.getUser();
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      const futures = patientData.appointments
+        .filter(a => a.status === 'scheduled'
+          && (!a.doctor_user_id || Number(a.doctor_user_id) === Number(user.id))
+          && new Date(String(a.scheduled_at).replace(' ', 'T')) >= today)
+        .sort((a, b) =>
+            new Date(String(a.scheduled_at).replace(' ', 'T'))
+          - new Date(String(b.scheduled_at).replace(' ', 'T')));
+      return futures[0] || null;
+    }
+
+    async function loadNotesTabNotes(apptId) {
+      const el = document.getElementById('notestab-list');
+      if (!el) return;
+      try {
+        const res = await api.get('/appointments/notes/list?appointment_id=' + apptId);
+        const notes = res.notes || [];
+        el.innerHTML = notes.length
+          ? '<div style="display:flex; flex-direction:column; gap: var(--space-3);">' + notes.map(n => `
+              <div style="background: var(--color-bg-subtle); border-left: 3px solid var(--color-primary); border-radius: var(--radius); padding: var(--space-3);">
+                <div style="white-space: pre-wrap; line-height: var(--lh-normal);">${escapeHtmlGlobal(n.note)}</div>
+                <div class="text-small text-muted" style="margin-top: var(--space-2);">${n.author_name ? escapeHtmlGlobal(n.author_name) : '—'} · ${formatDateBR(n.created_at)}</div>
+              </div>`).join('') + '</div>'
+          : '<div class="text-small text-muted">Nenhuma anotação ainda nesta consulta.</div>';
+      } catch (err) {
+        el.innerHTML = '<div class="text-small" style="color:#dc2626;">Erro ao carregar anotações: ' + escapeHtmlGlobal(err.message || '') + '</div>';
+      }
+    }
+
+    async function addNotesTabNote(apptId) {
+      const ta = document.getElementById('notestab-input');
+      const note = (ta && ta.value || '').trim();
+      if (!note) { toast.error('Escreva a anotação antes de adicionar.'); if (ta) ta.focus(); return; }
+      try {
+        await api.post('/appointments/notes/create', { appointment_id: apptId, note });
+        toast.success('Anotação adicionada.');
+        if (ta) ta.value = '';
+        loadNotesTabNotes(apptId);
+      } catch (err) {
+        toast.error(err.message || 'Erro ao adicionar anotação.');
+      }
     }
 
     async function saveNotes() {
