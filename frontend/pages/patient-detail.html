@@ -6,11 +6,31 @@
   <title>Prontuário — SGX</title>
   <link rel="stylesheet" href="../assets/css/base.css">
   <link rel="stylesheet" href="../assets/css/dashboard.css">
+  <style>
+    /* Prontuário da consulta (Leva 3) */
+    .pront-sec {
+      font-family: var(--font-body); font-size: var(--fs-base);
+      text-transform: uppercase; letter-spacing: 0.04em;
+      color: var(--color-text-muted);
+      margin: var(--space-5) 0 var(--space-3);
+      padding-top: var(--space-4); border-top: 1px solid var(--color-border);
+    }
+    #pront-doc > .pront-sec:first-of-type {
+      border-top: none; padding-top: 0; margin-top: 0;
+    }
+    @media print {
+      .dash-sidebar, .sidebar, .pront-toolbar, .tabs { display: none !important; }
+      #pront-doc.card { box-shadow: none !important; border: none !important; }
+    }
+  </style>
 </head>
 <body>
 
   <div class="dash" id="dash-root">
     <main class="dash-main">
+
+      <!-- Visão normal (header + abas). Fica oculta quando o prontuário abre. -->
+      <div id="normal-view">
 
       <!-- Breadcrumb -->
       <div style="margin-bottom: var(--space-4); font-size: var(--fs-sm); color: var(--color-text-muted);">
@@ -38,6 +58,11 @@
       <div id="tab-history" class="tab-content"></div>
       <div id="tab-exams" class="tab-content"></div>
       <div id="tab-notes" class="tab-content"></div>
+
+      </div><!-- /#normal-view -->
+
+      <!-- Visão de prontuário (tela cheia). Preenchida ao clicar numa consulta finalizada. -->
+      <div id="prontuario-view" style="display:none;"></div>
 
     </main>
   </div>
@@ -218,11 +243,12 @@
     function renderHeader(p) {
       const initials = getPatientInitials(p.full_name);
       const user = api.getUser();
-      const canRegisterExam = user.role === 'doctor' && !viewMode;
 
       // Detecta se tem consulta agendada para HOJE com este paciente (e com este médico)
       const todayApt = findTodayAppointment();
       const canFinishConsulta = !viewMode && user.role === 'doctor' && todayApt;
+      // Consulta de HOJE já finalizada (realizada) -> mostra o selo "Consulta finalizada"
+      const todayDone = !canFinishConsulta && user.role === 'doctor' && findTodayCompletedAppointment();
 
       document.getElementById('patient-header').innerHTML = `
         <div class="patient-header">
@@ -237,17 +263,16 @@
               ${viewMode ? `<span style="color: var(--color-primary); font-weight: 600;">👁 Modo somente leitura</span>` : ''}
             </div>
           </div>
-          <div class="patient-actions" style="display:flex; gap:var(--space-2); flex-wrap:wrap;">
+          <div class="patient-actions" style="display:flex; gap:var(--space-2); flex-wrap:wrap; align-items:center;">
             ${canFinishConsulta ? `
               <button class="btn btn-secondary" onclick="openFinishModal(${todayApt.id})" title="Marcar status desta consulta">
                 ✓ Finalizar consulta
               </button>
-            ` : ''}
-            ${canRegisterExam ? `
-              <button class="btn btn-primary" onclick="openExamModal()">
-                + Registrar exame molecular
-              </button>
-            ` : ''}
+            ` : (todayDone ? `
+              <span style="display:inline-flex; align-items:center; gap:6px; background:#10b981; color:#fff; padding:8px 14px; border-radius:999px; font-size: var(--fs-sm); font-weight:600;">
+                ✓ Consulta finalizada
+              </span>
+            ` : '')}
           </div>
         </div>
       `;
@@ -263,6 +288,21 @@
 
       return patientData.appointments.find(a => {
         if (a.status !== 'scheduled') return false;
+        const apptDate = new Date(String(a.scheduled_at).replace(' ', 'T'));
+        return apptDate >= today && apptDate < tomorrow
+            && (!a.doctor_user_id || Number(a.doctor_user_id) === Number(user.id));
+      }) || null;
+    }
+
+    // Consulta de HOJE já finalizada (status completed) com o médico logado.
+    function findTodayCompletedAppointment() {
+      if (!patientData || !patientData.appointments) return null;
+      const user = api.getUser();
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate() + 1);
+
+      return patientData.appointments.find(a => {
+        if (a.status !== 'completed') return false;
         const apptDate = new Date(String(a.scheduled_at).replace(' ', 'T'));
         return apptDate >= today && apptDate < tomorrow
             && (!a.doctor_user_id || Number(a.doctor_user_id) === Number(user.id));
@@ -758,8 +798,12 @@
           no_show:   '<span class="answer-pill unknown">Não compareceu</span>',
         };
         html += `<div class="history-list" style="margin-bottom: var(--space-5);">`
-          + appts.map(a => `
-            <div class="history-item">
+          + appts.map(a => {
+            // Só consulta FINALIZADA (realizada) abre o prontuário completo.
+            const isCompleted = a.status === 'completed';
+            return `
+            <div class="history-item${isCompleted ? ' consulta-item' : ''}"
+                 ${isCompleted ? `style="cursor: pointer;" onclick="openProntuario(${a.id})"` : ''}>
               <div>
                 <div class="history-date">${formatDateBR(a.scheduled_at)}</div>
                 <div style="font-weight: 600; margin-bottom: var(--space-1);">
@@ -770,11 +814,12 @@
                   ${a.notes ? ' · ' + escapeHtmlGlobal(a.notes) : ''}
                 </div>
               </div>
-              <div style="text-align: right;">
+              <div style="text-align: right; white-space: nowrap;">
                 ${STATUS_BADGES[a.status] || a.status}
+                ${isCompleted ? '<div class="text-small" style="margin-top: var(--space-2); color: var(--color-primary); font-weight: 600;">ver prontuário →</div>' : ''}
               </div>
-            </div>
-          `).join('') + '</div>';
+            </div>`;
+          }).join('') + '</div>';
       }
 
       // Seção: Triagens
@@ -804,6 +849,263 @@
       }
 
       document.getElementById('tab-history').innerHTML = html;
+    }
+
+    /* ===================================================================
+       PRONTUÁRIO DA CONSULTA (Leva 3)
+       Abre em tela cheia ao clicar numa consulta FINALIZADA.
+       Consolida, no estilo de prontuário médico, os dados que o sistema
+       já tem: identificação, responsável, triagem/indicadores,
+       socioeconômica, anexos (fotos), exames e as anotações da consulta.
+       O botão "Revisar" adiciona uma anotação nova (append-only).
+       =================================================================== */
+    let prontuarioApptId = null;
+
+    async function openProntuario(apptId) {
+      const appt = (patientData.appointments || []).find(a => Number(a.id) === Number(apptId));
+      if (!appt) { toast.error('Consulta não encontrada.'); return; }
+      prontuarioApptId = apptId;
+
+      document.getElementById('normal-view').style.display = 'none';
+      const view = document.getElementById('prontuario-view');
+      view.style.display = 'block';
+      view.innerHTML = '<div class="card"><div class="text-small text-muted">Carregando prontuário...</div></div>';
+      window.scrollTo(0, 0);
+
+      let notes = [];
+      try {
+        const res = await api.get('/appointments/notes/list?appointment_id=' + apptId);
+        notes = res.notes || [];
+      } catch (err) {
+        // Mostra o prontuário mesmo sem conseguir as anotações; avisa no rodapé.
+        notes = null;
+      }
+      view.innerHTML = renderProntuario(appt, notes);
+      window.scrollTo(0, 0);
+    }
+
+    function closeProntuario() {
+      prontuarioApptId = null;
+      document.getElementById('prontuario-view').style.display = 'none';
+      document.getElementById('normal-view').style.display = 'block';
+      // Volta para a aba "Histórico de triagens", de onde a consulta foi clicada
+      activateTab('history');
+      window.scrollTo(0, 0);
+    }
+
+    function renderProntuario(appt, notes) {
+      const p     = patientData.patient;
+      const exams = patientData.exams || [];
+      const socio = patientData.socioeconomic;
+      const uploads = patientData.uploads || [];
+      const user  = api.getUser();
+
+      const statusLabels = {
+        completed: 'Realizada', scheduled: 'Agendada',
+        cancelled: 'Cancelada', no_show: 'Paciente não compareceu',
+      };
+      const canRevisar = !viewMode && user && user.role === 'doctor'
+        && appt && Number(appt.doctor_user_id) === Number(user.id);
+
+      // ----- Identificação -----
+      const identificacao = `
+        <h4 class="pront-sec">Identificação do paciente</h4>
+        <dl class="def-list">
+          <dt>Nome completo</dt>      <dd>${escapeHtmlGlobal(p.full_name)}</dd>
+          <dt>Data de nascimento</dt> <dd>${formatDateOnly(p.birth_date)} (${p.age} anos)</dd>
+          <dt>Sexo biológico</dt>     <dd>${p.biological_sex === 'M' ? 'Masculino' : 'Feminino'}</dd>
+          <dt>CPF</dt>                <dd>${escapeHtmlGlobal(p.cpf || '—')}</dd>
+          ${p.phone ? `<dt>Telefone</dt> <dd>${escapeHtmlGlobal(p.phone)}</dd>` : ''}
+          <dt>E-mail</dt>             <dd>${escapeHtmlGlobal(p.user_email || '—')}</dd>
+          <dt>Nº do prontuário</dt>   <dd>${escapeHtmlGlobal(String(p.id))}</dd>
+          ${(p.zip_code || p.street) ? `
+            <dt>Endereço</dt>
+            <dd>
+              ${escapeHtmlGlobal(p.street || '—')}, ${escapeHtmlGlobal(p.number || '—')}${p.complement ? ' — ' + escapeHtmlGlobal(p.complement) : ''}
+              <br>${escapeHtmlGlobal(p.neighborhood || '—')} — ${escapeHtmlGlobal(p.city || '—')}/${escapeHtmlGlobal(p.state || '—')}
+              <br>CEP ${escapeHtmlGlobal(p.zip_code || '—')}
+            </dd>
+          ` : ''}
+        </dl>`;
+
+      // ----- Responsável -----
+      const responsavel = p.guardian_name ? `
+        <h4 class="pront-sec">Dados do responsável</h4>
+        <dl class="def-list">
+          <dt>Nome completo</dt> <dd>${escapeHtmlGlobal(p.guardian_name)}</dd>
+          <dt>Parentesco</dt>    <dd>${escapeHtmlGlobal(p.guardian_relationship || '—')}</dd>
+          <dt>Telefone</dt>      <dd>${escapeHtmlGlobal(p.guardian_phone || '—')}</dd>
+        </dl>` : '';
+
+      // ----- Histórico clínico / Triagem -----
+      let triagem = '';
+      if (screeningDetail && screeningDetail.answers_by_category) {
+        const cats = screeningDetail.answers_by_category;
+        const labels = { development: 'Desenvolvimento', behavioral: 'Comportamento', physical: 'Características físicas' };
+        const ansLabel = { yes: 'Sim', no: 'Não', unknown: 'Não sei' };
+        const s = screeningDetail.screening;
+        let inner = '<div class="indicator-summary">';
+        Object.entries(cats).forEach(([cat, items]) => {
+          if (!items.length) return;
+          inner += `<div class="indicator-cat"><h4>${labels[cat] || cat}</h4>`;
+          items.forEach(i => {
+            inner += `<div class="indicator-row"><span class="label">${escapeHtmlGlobal(i.lay_label)}</span>`
+                   + `<span class="answer-pill ${i.answer}">${ansLabel[i.answer]}</span></div>`;
+          });
+          inner += '</div>';
+        });
+        inner += '</div>';
+        triagem = `
+          <h4 class="pront-sec">Histórico clínico — Triagem</h4>
+          <div class="text-small text-muted" style="margin-bottom: var(--space-3);">
+            Score <strong>${Number(s.score || 0).toFixed(2)}</strong>
+            (limiar ${Number(s.threshold_applied || 0).toFixed(2)}) ·
+            Prioridade ${priorityBadge(s.priority)} ·
+            Recomendação: <strong>${recommendationLabel(s.recommendation)}</strong>
+          </div>
+          ${inner}`;
+      } else {
+        triagem = '<h4 class="pront-sec">Histórico clínico — Triagem</h4>'
+                + '<p class="text-small text-muted">Nenhuma triagem registrada para este paciente.</p>';
+      }
+      // Histórico familiar relatado (texto livre do paciente)
+      if (p.family_history_notes) {
+        triagem += `
+          <div style="margin-top: var(--space-4);">
+            <div class="text-small text-muted" style="text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: var(--space-2);">
+              Antecedentes familiares (relato livre)
+            </div>
+            <p style="white-space: pre-wrap; line-height: 1.55;">${escapeHtmlGlobal(p.family_history_notes)}</p>
+          </div>`;
+      }
+
+      // ----- Exames moleculares -----
+      const examTypeLabel = { pcr: 'PCR', southern_blotting: 'Southern Blotting' };
+      const resultLabel = { positive: 'Positivo', negative: 'Negativo', inconclusive: 'Inconclusivo' };
+      const resultClass = { positive: 'yes', negative: 'no', inconclusive: 'unknown' };
+      let examesHtml = '<h4 class="pront-sec">Exames moleculares</h4>';
+      if (!exams.length) {
+        examesHtml += '<p class="text-small text-muted">Nenhum exame molecular registrado.</p>';
+      } else {
+        examesHtml += '<div class="table-wrapper"><table class="data-table"><thead><tr>'
+          + '<th>Tipo</th><th>Data</th><th>Resultado</th><th>Laboratório</th><th>Observações</th>'
+          + '</tr></thead><tbody>'
+          + exams.map(e => `
+            <tr>
+              <td><strong>${examTypeLabel[e.exam_type] || e.exam_type}</strong></td>
+              <td>${formatDateOnly(e.exam_date)}</td>
+              <td><span class="answer-pill ${resultClass[e.result]}">${resultLabel[e.result]}</span></td>
+              <td>${escapeHtmlGlobal(e.laboratory || '—')}</td>
+              <td class="text-small text-muted">${escapeHtmlGlobal(e.notes || '—')}</td>
+            </tr>`).join('')
+          + '</tbody></table></div>';
+      }
+
+      // ----- Anotações clínicas + Revisar -----
+      // Mostra DUAS origens:
+      //  1) a anotação clínica salva junto da triagem (campo clinical_notes) — a
+      //     "Anotações clínicas" antiga, que a médica já vinha usando;
+      //  2) as anotações por consulta (appointment_notes), adicionadas pelo Revisar.
+      let anotacoes = '<h4 class="pront-sec">Anotações clínicas</h4>';
+      let temAlguma = false;
+
+      const clinicalLegacy = (screeningDetail && screeningDetail.screening
+        && screeningDetail.screening.clinical_notes) ? String(screeningDetail.screening.clinical_notes).trim() : '';
+      if (clinicalLegacy) {
+        temAlguma = true;
+        anotacoes += `
+          <div style="background: #fff7e6; border-left: 3px solid #f0b95a; border-radius: var(--radius); padding: var(--space-3); margin-bottom: var(--space-3);">
+            <div style="white-space: pre-wrap; line-height: var(--lh-normal);">${escapeHtmlGlobal(clinicalLegacy)}</div>
+            <div class="text-small text-muted" style="margin-top: var(--space-2);">
+              Anotação registrada na triagem #${screeningDetail.screening.id}
+            </div>
+          </div>`;
+      }
+
+      if (notes === null) {
+        anotacoes += '<p class="text-small" style="color:#dc2626;">Não foi possível carregar as anotações desta consulta.</p>';
+      } else if (notes.length) {
+        temAlguma = true;
+        anotacoes += '<div style="display:flex; flex-direction:column; gap: var(--space-3);">'
+          + notes.map(n => `
+            <div style="background: var(--color-bg-subtle); border-left: 3px solid var(--color-primary); border-radius: var(--radius); padding: var(--space-3);">
+              <div style="white-space: pre-wrap; line-height: var(--lh-normal);">${escapeHtmlGlobal(n.note)}</div>
+              <div class="text-small text-muted" style="margin-top: var(--space-2);">
+                ${n.author_name ? escapeHtmlGlobal(n.author_name) : '—'} · ${formatDateBR(n.created_at)}
+              </div>
+            </div>`).join('')
+          + '</div>';
+      }
+
+      if (!temAlguma && notes !== null) {
+        anotacoes += '<p class="text-small text-muted">Nenhuma anotação registrada ainda.</p>';
+      }
+
+      if (canRevisar) {
+        anotacoes += `
+          <div id="pront-revisar-box" style="display:none; margin-top: var(--space-3);">
+            <textarea class="textarea" id="pront-note-input" rows="4"
+                      placeholder="Escreva uma anotação para esta consulta..."></textarea>
+            <div class="flex gap-3" style="margin-top: var(--space-2);">
+              <button class="btn btn-primary" onclick="prontuarioAddNote()">Adicionar anotação</button>
+              <button class="btn btn-ghost" onclick="prontuarioToggleRevisar(false)">Cancelar</button>
+            </div>
+          </div>
+          <button class="btn btn-secondary" id="pront-revisar-btn" style="margin-top: var(--space-3);"
+                  onclick="prontuarioToggleRevisar(true)">✎ Revisar — adicionar anotação</button>`;
+      } else if (!viewMode && user && user.role === 'doctor') {
+        anotacoes += '<p class="text-small text-muted" style="margin-top: var(--space-2);">Você só pode anotar nas consultas em que é a profissional responsável.</p>';
+      }
+
+      // ----- Documento completo -----
+      return `
+        <div class="pront-toolbar" style="display:flex; justify-content: space-between; align-items:center; gap: var(--space-3); margin-bottom: var(--space-4);">
+          <button class="btn btn-ghost" onclick="closeProntuario()">← Voltar para as consultas</button>
+          <button class="btn btn-ghost" onclick="window.print()">🖨 Imprimir</button>
+        </div>
+        <div class="card" id="pront-doc">
+          <div style="text-align:center; margin-bottom: var(--space-5);">
+            <h2 style="font-family: var(--font-display); letter-spacing: 0.04em;">PRONTUÁRIO MÉDICO</h2>
+            <div class="text-small text-muted" style="margin-top: var(--space-2);">
+              Consulta de ${formatDateBR(appt.scheduled_at)}
+              ${appt.doctor_name ? ' · ' + escapeHtmlGlobal(appt.doctor_name) : ''}
+              · ${statusLabels[appt.status] || appt.status}
+            </div>
+          </div>
+          ${identificacao}
+          ${responsavel}
+          ${triagem}
+          ${renderSocioeconomicCard(socio).replace('<div class="card"', '<div').replace('margin-top: var(--space-4);', '')}
+          ${renderUploadsCard(uploads).replace('<div class="card"', '<div').replace('margin-top: var(--space-4);', '')}
+          ${examesHtml}
+          ${anotacoes}
+        </div>`;
+    }
+
+    function prontuarioToggleRevisar(show) {
+      const box = document.getElementById('pront-revisar-box');
+      const btn = document.getElementById('pront-revisar-btn');
+      if (box) box.style.display = show ? 'block' : 'none';
+      if (btn) btn.style.display = show ? 'none' : 'inline-flex';
+      if (show) { const ta = document.getElementById('pront-note-input'); if (ta) ta.focus(); }
+    }
+
+    async function prontuarioAddNote() {
+      if (!prontuarioApptId) return;
+      const ta = document.getElementById('pront-note-input');
+      const note = (ta && ta.value || '').trim();
+      if (!note) {
+        toast.error('Escreva a anotação antes de adicionar.');
+        if (ta) ta.focus();
+        return;
+      }
+      try {
+        await api.post('/appointments/notes/create', { appointment_id: prontuarioApptId, note });
+        toast.success('Anotação adicionada.');
+        await openProntuario(prontuarioApptId); // recarrega o prontuário com a nova anotação
+      } catch (err) {
+        toast.error(err.message || 'Erro ao adicionar anotação.');
+      }
     }
 
     function renderExams(exams) {
@@ -896,32 +1198,28 @@
         return;
       }
 
-      // Modo completo — formulário editável
+      // Aba só-leitura: as anotações agora são feitas no PRONTUÁRIO da consulta
+      // (botão Revisar). Aqui só mostramos a anotação que já existe na triagem.
+      const hasNotes = !!(screening.clinical_notes && screening.clinical_notes.trim());
       document.getElementById('tab-notes').innerHTML = `
         <div class="card">
           <h3 style="font-family: var(--font-body); font-size: var(--fs-base); margin-bottom: var(--space-3);">
             Anotações clínicas — Triagem #${screening.id}
           </h3>
-          <div class="field">
-            <label for="notes">Observações</label>
-            <textarea class="textarea" id="notes" rows="6" placeholder="Registre observações pertinentes ao caso...">${escapeHtmlGlobal(screening.clinical_notes || '')}</textarea>
-            <span class="help">Apenas profissionais visualizam essas notas.</span>
+          ${hasNotes ? `
+            <div style="white-space: pre-wrap; line-height: var(--lh-normal); padding: var(--space-3); background: var(--color-bg-subtle); border-radius: var(--radius); border-left: 4px solid var(--color-primary);">
+              ${escapeHtmlGlobal(screening.clinical_notes)}
+            </div>
+          ` : `
+            <p class="text-small text-muted">Nenhuma anotação registrada nesta triagem.</p>
+          `}
+          <div style="background:#f4f0fb; border:1px solid #d9cdee; border-radius: var(--radius); margin-top: var(--space-4); padding: var(--space-3);">
+            <div class="text-small">
+              As anotações agora são feitas no <strong>prontuário da consulta</strong>.
+              Abra uma consulta marcada como <strong>"Realizada"</strong> na aba
+              "Histórico de triagens" e use o botão <strong>Revisar</strong>.
+            </div>
           </div>
-          <div class="field" style="flex-direction: row; align-items: center; gap: var(--space-3);">
-            <input type="checkbox" id="include-report" ${screening.include_notes_in_report ? 'checked' : ''}>
-            <label for="include-report" style="font-weight: 400; font-size: var(--fs-sm); margin: 0;">
-              Incluir essas anotações no relatório PDF
-            </label>
-          </div>
-          <div class="flex gap-3" style="margin-top: var(--space-4);">
-            <button class="btn btn-primary" onclick="saveNotes()">Salvar anotações</button>
-            <button class="btn btn-secondary" onclick="reviewAndFinish()">Revisar e finalizar consulta</button>
-          </div>
-          <p class="text-small text-muted" style="margin-top: var(--space-3);">
-            "Revisar e finalizar consulta" exige uma anotação clínica preenchida.
-            Se houver consulta agendada para hoje, ela é marcada como realizada
-            automaticamente.
-          </p>
         </div>
       `;
     }
@@ -1009,6 +1307,12 @@
     }
     async function submitExam() {
       const btn = document.getElementById('btn-submit-exam');
+      // Valida antes de desabilitar o botão, pra não travar à toa
+      const result = document.getElementById('exam-result').value;
+      if (!result) {
+        toast.error('Selecione o resultado do exame.');
+        return;
+      }
       btn.disabled = true;
       btn.textContent = 'Enviando...';
       try {
@@ -1017,25 +1321,42 @@
           screening_id: screeningDetail?.screening?.id || null,
           exam_type:    document.getElementById('exam-type').value,
           exam_date:    document.getElementById('exam-date').value,
-          result:       document.getElementById('exam-result').value,
+          result:       result,
           laboratory:   document.getElementById('exam-lab').value,
           notes:        document.getElementById('exam-notes').value,
         };
-        if (!payload.result) {
-          toast.error('Selecione o resultado do exame.');
-          btn.disabled = false;
-          btn.textContent = 'Registrar exame';
-          return;
-        }
         await api.post('/exams/register', payload);
-        toast.success('Exame registrado com sucesso.');
         closeExamModal();
-        setTimeout(() => location.reload(), 800);
+        resetExamForm();
+        // Recarrega os dados e MANTÉM você na aba "Exames"
+        // (antes a página recarregava e caía na "Visão geral").
+        await loadAll();
+        activateTab('exams');
+        toast.success('Exame registrado com sucesso.');
       } catch (err) {
+        toast.error(err.message);
+      } finally {
         btn.disabled = false;
         btn.textContent = 'Registrar exame';
-        toast.error(err.message);
       }
+    }
+
+    // Limpa o formulário do modal de exame depois de registrar.
+    function resetExamForm() {
+      const t = document.getElementById('exam-type');   if (t) t.value = 'pcr';
+      const r = document.getElementById('exam-result'); if (r) r.value = '';
+      const l = document.getElementById('exam-lab');    if (l) l.value = '';
+      const n = document.getElementById('exam-notes');  if (n) n.value = '';
+    }
+
+    // Ativa uma aba pelo nome (mesma lógica do clique nas abas).
+    function activateTab(name) {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+      const tabBtn  = document.querySelector('.tab[data-tab="' + name + '"]');
+      const content = document.getElementById('tab-' + name);
+      if (tabBtn)  tabBtn.classList.add('active');
+      if (content) content.classList.add('active');
     }
 
     loadAll();
