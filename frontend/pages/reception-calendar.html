@@ -469,13 +469,39 @@
                   : `<span title="Sem link da reunião ainda" style="color: #c87f0a;">⚠️ sem link</span>`
                 ) : '' }
             </div>
+            ${ canEdit && !hasLink ? `
+              <div style="display:flex; gap:6px; margin-top:8px; max-width: 460px;">
+                <input type="url" id="quicklink-${a.id}" placeholder="Colar o link da reunião e salvar"
+                       style="flex:1; padding:5px 8px; border:1px solid var(--color-border); border-radius:6px; font-size:13px;">
+                <button class="btn btn-primary btn-sm" style="white-space:nowrap;" onclick="saveQuickLink(${a.id})">Salvar link</button>
+              </div>
+            ` : '' }
           </div>
           <div class="appt-actions">
-            ${ canEdit ? `<button onclick="openEditModal(${a.id})">${hasLink ? 'Editar' : 'Editar / + Link'}</button>` : '' }
+            ${ canEdit ? `<button onclick="openEditModal(${a.id})">Editar</button>` : '' }
             ${ canEdit ? `<button onclick="cancelAppt(${a.id})">Cancelar</button>` : '' }
           </div>
         </div>
       `;
+    }
+
+    // Salva o link da reunião direto pelo card (sem abrir o modal inteiro).
+    async function saveQuickLink(id) {
+      const el = document.getElementById('quicklink-' + id);
+      const link = (el && el.value || '').trim();
+      if (!link) { toast.error('Cole o link da reunião primeiro.'); if (el) el.focus(); return; }
+      if (!/^https?:\/\//i.test(link)) {
+        toast.error('O link precisa começar com http:// ou https://');
+        return;
+      }
+      try {
+        await api.post('/appointments/update', { id, meeting_link: link });
+        toast.success('Link salvo!');
+        await loadCalendar();
+        await loadDay(state.selectedDate);
+      } catch (err) {
+        toast.error(err.message || 'Erro ao salvar o link.');
+      }
     }
 
     /* ===== Eventos ===== */

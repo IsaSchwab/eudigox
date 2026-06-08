@@ -155,6 +155,10 @@
           </select>
         </div>
         <div class="field">
+          <label for="e-link">Link da reunião</label>
+          <input class="input" id="e-link" type="url" placeholder="https://... (ex: Google Meet)">
+        </div>
+        <div class="field">
           <label for="e-notes">Observações</label>
           <textarea class="textarea" id="e-notes" rows="3"></textarea>
         </div>
@@ -307,7 +311,7 @@
                 <div class="patient-cell">
                   <div class="avatar">${getPatientInitials(a.patient_name)}</div>
                   <div>
-                    <div class="name">${escapeHtmlGlobal(a.patient_name)}</div>
+                    <div class="name"><a href="patient-detail.html?id=${a.patient_id}" title="Ver dados do paciente">${escapeHtmlGlobal(a.patient_name)}</a></div>
                     <div class="meta">${calcAge(a.birth_date)} · ${a.biological_sex === 'M' ? 'Masc' : 'Fem'}</div>
                   </div>
                 </div>
@@ -363,6 +367,7 @@
       document.getElementById('e-time').value     = dt.toTimeString().slice(0, 5);
       document.getElementById('e-location').value = a.location || '';
       document.getElementById('e-status').value   = a.status;
+      document.getElementById('e-link').value     = a.meeting_link || '';
       document.getElementById('e-notes').value    = a.notes || '';
       document.getElementById('edit-modal').style.display = 'grid';
     }
@@ -379,6 +384,7 @@
           scheduled_at: `${document.getElementById('e-date').value} ${document.getElementById('e-time').value}:00`,
           location:     document.getElementById('e-location').value,
           status:       document.getElementById('e-status').value,
+          meeting_link: document.getElementById('e-link').value.trim(),
           notes:        document.getElementById('e-notes').value,
         });
         toast.success('Consulta atualizada.');
