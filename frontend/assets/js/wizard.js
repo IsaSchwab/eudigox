@@ -187,9 +187,10 @@ function validateStep(step) {
     if (p.cpf && p.cpf.trim() && !isValidCPF(p.cpf)) {
       errors.cpf = 'CPF inválido. Confira os números digitados.';
     }
-    // Telefone do paciente: obrigatório só quando "é pra você".
-    // Quando outra pessoa responde, quem precisa de telefone é o responsável (etapa 2).
-    if (wizard.data.isForSelf && !p.phone.trim()) {
+    // Telefone do paciente: obrigatório só quando NÃO há responsável.
+    // Se há responsável (resposta por outra pessoa OU paciente menor de idade),
+    // o telefone de contato é o do responsável (etapa 2).
+    if (!wizard.hasGuardianStep && !p.phone.trim()) {
       errors.phone = 'Telefone do paciente é obrigatório.';
     }
     // Endereço (obrigatório, exceto complemento)
@@ -259,6 +260,25 @@ function validateStep(step) {
   return errors;
 }
 
+/* ===== Maioridade / responsável ===== */
+// Paciente é menor de 18 anos? (baseado na data de nascimento)
+function patientIsMinor() {
+  const bd = wizard.data.patient.birth_date;
+  if (!bd) return false;
+  const d = new Date(bd + 'T00:00:00');
+  if (isNaN(d.getTime())) return false;
+  const today = new Date();
+  let age = today.getFullYear() - d.getFullYear();
+  const m = today.getMonth() - d.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < d.getDate())) age--;
+  return age < 18;
+}
+// O responsável é obrigatório quando: (a) é triagem por outra pessoa, OU
+// (b) o paciente é menor de 18 anos.
+function updateGuardianRequirement() {
+  wizard.hasGuardianStep = !wizard.data.isForSelf || patientIsMinor();
+}
+
 /* ===== Renderização das etapas ===== */
 function renderStep() {
   const root = $('#wizard-body');
@@ -322,6 +342,8 @@ function updateNavButtons() {
 function renderStep1() {
   const p = wizard.data.patient;
   const self = wizard.data.isForSelf;
+  const guardianReq = wizard.hasGuardianStep; // responsável obrigatório (não-self OU menor)
+  const minor = patientIsMinor();
   return `
     <div class="field">
       <label>Essa triagem é para você?</label>
@@ -339,7 +361,7 @@ function renderStep1() {
     </div>
 
     <div class="field">
-      <label for="full_name">Nome completo ${ self === false ? 'do paciente' : '' }</label>
+      <label for="full_name">Nome completo ${ guardianReq ? 'do paciente' : '' }</label>
       <input class="input" id="full_name" type="text" value="${escapeAttr(p.full_name)}" placeholder="Como aparece no documento" />
     </div>
     <div class="grid gap-4" style="grid-template-columns: 1fr 1fr;">
@@ -360,12 +382,17 @@ function renderStep1() {
         <span class="help">Essencial para o cálculo da triagem.</span>
       </div>
     </div>
+    ${ minor ? `
+      <p class="text-small" style="color: #5b3a92; background: #f4f0fb; border: 1px solid #d9cdee; border-radius: var(--radius); padding: var(--space-3); margin: var(--space-2) 0 var(--space-3);">
+        Paciente menor de 18 anos: os dados do responsável serão <strong>obrigatórios</strong> no próximo passo.
+      </p>
+    ` : '' }
     <div class="field">
       <label for="cpf">CPF (opcional)</label>
       <input class="input" id="cpf" type="text" value="${escapeAttr(p.cpf)}" placeholder="000.000.000-00" />
     </div>
 
-    ${ self ? `
+    ${ !guardianReq ? `
       <div class="field">
         <label for="phone">Telefone do paciente</label>
         <input class="input" id="phone" type="tel" value="${escapeAttr(p.phone)}" placeholder="(00) 00000-0000" />
@@ -373,7 +400,7 @@ function renderStep1() {
       </div>
     ` : `
       <p class="text-small text-muted" style="margin: var(--space-3) 0;">
-        Como você está respondendo por outra pessoa, o telefone de contato será o seu (responsável), pedido no próximo passo.
+        O telefone de contato será o do responsável, pedido no próximo passo.
       </p>
     `}
 
@@ -836,7 +863,7 @@ function bindStepEvents() {
       r.onchange = (e) => {
         const isYes = e.target.value === 'yes';
         wizard.data.isForSelf = isYes;
-        wizard.hasGuardianStep = !isYes;
+        updateGuardianRequirement();
         $$('input[name="is_for_self"]').forEach(r2 =>
           r2.closest('.radio-option').classList.toggle('selected', r2.checked)
         );
@@ -849,6 +876,9 @@ function bindStepEvents() {
     $('#full_name').oninput = (e) => wizard.data.patient.full_name = e.target.value;
     $('#birth_date').onchange = (e) => {
       wizard.data.patient.birth_date = e.target.value;
+      // Recalcula se o responsável passou a ser obrigatório (menor de idade)
+      updateGuardianRequirement();
+      renderStep();
     };
     $('#cpf').oninput = (e) => {
       const cursorAtEnd = e.target.selectionStart === e.target.value.length;
@@ -1052,6 +1082,9 @@ function bindStepEvents() {
 
 /* ===== Navegação ===== */
 function nextStep() {
+  // Garante que a obrigatoriedade do responsável está atualizada ao sair do passo 1
+  // (ex.: digitou a data de nascimento de um menor sem disparar o onchange).
+  if (wizard.currentStep === 1) updateGuardianRequirement();
   const errors = validateStep(wizard.currentStep);
   if (Object.keys(errors).length > 0) {
     showStepErrors(errors);
@@ -1128,7 +1161,7 @@ function prevStep() {
 }
 
 /* ===== Submissão final ===== */
-async function submit() {
+async function submit(ackPhone = false) {
   const btn = $('#btn-next');
   btn.disabled = true;
   btn.textContent = 'Enviando...';
@@ -1145,6 +1178,8 @@ async function submit() {
 
     const payload = {
       is_for_self: wizard.data.isForSelf,
+      // Confirmação de telefone repetido (ver tratamento de PHONE_DUPLICATE abaixo).
+      phone_duplicate_ack: ackPhone,
       patient: {
         full_name:            wizard.data.patient.full_name,
         birth_date:           wizard.data.patient.birth_date,
@@ -1204,6 +1239,20 @@ async function submit() {
   } catch (err) {
     btn.disabled = false;
     btn.textContent = 'Enviar para análise';
+
+    // Telefone já cadastrado: NÃO bloqueia — apenas avisa e deixa seguir.
+    // (Famílias costumam compartilhar o mesmo número.)
+    if (err.code === 'PHONE_DUPLICATE') {
+      const segue = confirm(
+        'Esse telefone já está cadastrado no sistema. Isso pode acontecer quando '
+        + 'familiares usam o mesmo número.\n\nDeseja continuar o cadastro mesmo assim?'
+      );
+      if (segue) {
+        return submit(true); // reenvia confirmando que pode repetir o telefone
+      }
+      toast.info('Sem problema. Se quiser, volte e revise o telefone antes de enviar.');
+      return;
+    }
 
     // Erros 409 (conflito): CPF ou email já cadastrado.
     // Volta pra etapa onde o problema está pra a pessoa corrigir.

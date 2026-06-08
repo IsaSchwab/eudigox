@@ -37,6 +37,21 @@ $socio       = $body['socioeconomic']?? [];
 // false = quem está preenchendo é responsável e responde por outra pessoa.
 $isForSelf   = array_key_exists('is_for_self', $body) ? (bool)$body['is_for_self'] : true;
 
+// Idade do paciente: menores de 18 anos exigem responsável, mesmo que a pessoa
+// tenha marcado "é para mim". (Regra de negócio: menor não faz triagem sozinho.)
+$isMinor = false;
+if (!empty($patient['birth_date'])) {
+    try {
+        $bd  = new DateTime((string)$patient['birth_date']);
+        $age = (new DateTime('today'))->diff($bd)->y;
+        $isMinor = $age < 18;
+    } catch (Throwable $e) {
+        $isMinor = false;
+    }
+}
+// Responsável obrigatório quando: responde por outra pessoa OU paciente é menor.
+$requireGuardian = !$isForSelf || $isMinor;
+
 // ===== Validação =====
 $v = new Validator(array_merge($patient, $account));
 $v->required('full_name')->maxLength('full_name', 180);
@@ -47,9 +62,9 @@ $v->required('password')->minLength('password', PASSWORD_MIN_LENGTH);
 // CPF é opcional, mas se vier deve ser matematicamente válido.
 $v->cpf('cpf');
 
-// Telefone do paciente: obrigatório só quando "é pra você".
-// Quando outra pessoa responde, quem tem telefone é o responsável (validado abaixo).
-if ($isForSelf) {
+// Telefone do paciente: obrigatório só quando NÃO há responsável.
+// Quando há responsável (outra pessoa OU paciente menor), o telefone é o dele.
+if (!$requireGuardian) {
     $v->required('phone', 'Telefone do paciente é obrigatório.')
       ->maxLength('phone', 20);
 }
@@ -69,8 +84,8 @@ if ($uf !== '' && !preg_match('/^[A-Z]{2}$/', $uf)) {
     $v->in('state', ['__INVALID__'], 'Estado (UF) deve ter 2 letras (ex: SP, RJ).');
 }
 
-// Se não é pra si, exige dados mínimos do responsável.
-if (!$isForSelf) {
+// Exige dados mínimos do responsável (resposta por outra pessoa OU paciente menor).
+if ($requireGuardian) {
     if (!is_array($guardian)) $guardian = [];
     $vg = new Validator($guardian);
     $vg->required('name')->maxLength('name', 180);
@@ -175,6 +190,35 @@ if ($cpfRaw !== '') {
     }
 }
 
+// Telefone já cadastrado?
+// Decisão de produto: telefone repetido NÃO bloqueia — famílias compartilham
+// o mesmo número (irmãos, pai/filho) em triagem de X Frágil. Apenas AVISA:
+// se o telefone já existe e a pessoa ainda não confirmou que quer seguir,
+// devolvemos um aviso (code PHONE_DUPLICATE) pro front pedir confirmação.
+// Quando vier phone_duplicate_ack = true, seguimos normalmente.
+$phoneAck     = !empty($body['phone_duplicate_ack']);
+$phoneToCheck = !$requireGuardian
+    ? ($patient['phone'] ?? '')
+    : (is_array($guardian) ? ($guardian['phone'] ?? '') : '');
+$phoneDigits  = preg_replace('/\D/', '', (string)$phoneToCheck);
+if (!$phoneAck && strlen($phoneDigits) >= 10) {
+    // Compara só os dígitos (ignora formatação) tanto no telefone do paciente
+    // quanto no do responsável. REGEXP_REPLACE existe a partir do MySQL 8.
+    $stmt = $pdo->prepare("
+        SELECT id FROM patients
+        WHERE deleted_at IS NULL
+          AND (
+                REGEXP_REPLACE(COALESCE(phone, ''),          '[^0-9]', '') = :d1
+             OR REGEXP_REPLACE(COALESCE(guardian_phone, ''), '[^0-9]', '') = :d2
+          )
+        LIMIT 1
+    ");
+    $stmt->execute([':d1' => $phoneDigits, ':d2' => $phoneDigits]);
+    if ($stmt->fetch()) {
+        Response::error('Já existe um cadastro usando este telefone.', 409, 'PHONE_DUPLICATE');
+    }
+}
+
 $uploadsDir  = realpath(__DIR__ . '/../../uploads');
 $pendingDir  = $uploadsDir . '/_pending';
 $movedFiles  = []; // [dst => src] — pra desfazer se a transação falhar
@@ -194,12 +238,13 @@ try {
     ]);
     $userId = (int)$pdo->lastInsertId();
 
-    // 2) Cria patient (se não é pra si, ignora qualquer guardian enviado)
-    $guardianForDb = $isForSelf ? null : $guardian;
+    // 2) Cria patient. Guarda o responsável quando ele é obrigatório
+    //    (resposta por outra pessoa OU paciente menor de idade).
+    $guardianForDb = $requireGuardian ? $guardian : null;
 
-    // Telefone do paciente: só guarda quando é "pra ele mesmo".
-    // Quando é por outra pessoa, o telefone fica no responsável.
-    $patientPhone = $isForSelf && !empty($patient['phone'])
+    // Telefone do paciente: só guarda quando NÃO há responsável.
+    // Quando há responsável, o telefone de contato fica no responsável.
+    $patientPhone = !$requireGuardian && !empty($patient['phone'])
         ? trim((string)$patient['phone'])
         : null;
 
@@ -285,10 +330,10 @@ try {
 
     $stmtUp = $pdo->prepare("
         INSERT INTO patient_uploads
-            (patient_id, kind, original_name, stored_path, mime_type, size_bytes,
+            (patient_id, screening_id, kind, original_name, stored_path, mime_type, size_bytes,
              uploaded_by_user_id)
         VALUES
-            (:pid, :kind, :orig, :path, :mime, :size, :uid)
+            (:pid, :sid, :kind, :orig, :path, :mime, :size, :uid)
     ");
     foreach ($uploadsByKind as $kind => $up) {
         $src = $pendingDir . '/' . $up['stored_name'];
@@ -306,6 +351,7 @@ try {
 
         $stmtUp->execute([
             ':pid'  => $patientId,
+            ':sid'  => $screeningId,
             ':kind' => $kind,
             ':orig' => $up['original_name'],
             ':path' => $dstRel,
@@ -318,12 +364,12 @@ try {
     // 7) Salva socioeconômica
     $stmtSocio = $pdo->prepare("
         INSERT INTO socioeconomic_assessments
-            (patient_id, household_size, income_range,
+            (patient_id, screening_id, household_size, income_range,
              receives_benefit, benefit_details,
              provider_work_status, has_health_plan,
              provider_education, observations)
         VALUES
-            (:pid, :hh, :ir, :rb, :bd, :ws, :hp, :ed, :ob)
+            (:pid, :sid, :hh, :ir, :rb, :bd, :ws, :hp, :ed, :ob)
     ");
     $benefitDetails = $receivesBenefit && !empty($socio['benefit_details'])
         ? trim((string)$socio['benefit_details']) : null;
@@ -331,6 +377,7 @@ try {
         ? trim((string)$socio['observations']) : null;
     $stmtSocio->execute([
         ':pid' => $patientId,
+        ':sid' => $screeningId,
         ':hh'  => $householdSize,
         ':ir'  => $socio['income_range'],
         ':rb'  => $receivesBenefit,
