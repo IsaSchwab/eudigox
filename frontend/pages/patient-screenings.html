@@ -17,7 +17,7 @@
           <h1 class="dash-title">Minhas triagens</h1>
           <p class="dash-subtitle">Histórico de avaliações que você realizou.</p>
         </div>
-        <a href="triagem.html" class="btn btn-primary">+ Nova triagem</a>
+        <a href="nova-triagem.html" id="btn-nova-triagem" class="btn btn-primary">+ Nova triagem</a>
       </header>
 
       <div id="content">
@@ -37,7 +37,8 @@
     async function load() {
       try {
         const data = await api.get('/patients/me');
-        renderList(data.screenings || []);
+        renderList(data);
+        applyRetriageGate(data);
       } catch (err) {
         if (err.status === 401) {
           api.clearSession();
@@ -49,7 +50,7 @@
             <div class="empty-state">
               <div class="icon">📋</div>
               <p>Você ainda não fez nenhuma triagem.</p>
-              <a href="triagem.html" class="btn btn-primary" style="margin-top: var(--space-4);">
+              <a href="nova-triagem.html" class="btn btn-primary" style="margin-top: var(--space-4);">
                 Iniciar primeira triagem →
               </a>
             </div>
@@ -65,13 +66,49 @@
       }
     }
 
-    function renderList(screenings) {
+    // Só libera nova triagem se há consulta realizada (completed) na data da
+    // última triagem ou depois dela.
+    function canRetriage(data) {
+      const screenings = data.screenings || [];
+      if (screenings.length === 0) return true;
+      const last = screenings[0];
+      const lastDate = new Date(String(last.submitted_at || last.created_at || '').replace(' ', 'T'));
+      return (data.appointments || []).some(a =>
+        a.status === 'completed' &&
+        new Date(String(a.scheduled_at || '').replace(' ', 'T')) >= lastDate);
+    }
+    function applyRetriageGate(data) {
+      const btn = document.getElementById('btn-nova-triagem');
+      if (!btn || canRetriage(data)) return; // permitido — deixa o botão como está
+      btn.outerHTML = `
+        <div style="text-align:right;">
+          <span class="btn btn-primary" style="opacity:.5; cursor:not-allowed; pointer-events:none;">+ Nova triagem</span>
+          <div class="text-small text-muted" style="margin-top:6px; max-width:280px;">
+            Disponível após você realizar a consulta da sua última triagem.
+          </div>
+        </div>`;
+    }
+
+    function renderList(data) {
+      const screenings = data.screenings || [];
+      const appts = data.appointments || [];
+      // Para a triagem mais recente: já tem consulta marcada/realizada depois dela?
+      const latest = screenings[0];
+      const latestDate = latest
+        ? new Date(String(latest.submitted_at || latest.created_at || '').replace(' ', 'T'))
+        : null;
+      const apptAfter = (status) => latestDate && appts.some(a =>
+        a.status === status &&
+        new Date(String(a.scheduled_at || '').replace(' ', 'T')) >= latestDate);
+      const hasCompleted = apptAfter('completed');
+      const hasScheduled = apptAfter('scheduled');
+
       if (screenings.length === 0) {
         document.getElementById('content').innerHTML = `
           <div class="empty-state">
             <div class="icon">📋</div>
             <p>Nenhuma triagem encontrada.</p>
-            <a href="triagem.html" class="btn btn-primary" style="margin-top: var(--space-4);">
+            <a href="nova-triagem.html" class="btn btn-primary" style="margin-top: var(--space-4);">
               Iniciar triagem →
             </a>
           </div>
@@ -117,6 +154,13 @@
               </div>
               <div style="text-align: right;">
                 <span class="badge badge-info">${escapeHtmlGlobal(labels[s.status] || s.status)}</span>
+                ${idx === 0 && !hasCompleted ? (
+                  hasScheduled
+                    ? `<div class="text-small text-muted" style="margin-top: var(--space-2);">📅 Consulta agendada</div>`
+                    : `<div style="margin-top: var(--space-2);">
+                         <a href="agendar.html" class="btn btn-primary btn-sm">📅 Agendar consulta</a>
+                       </div>`
+                ) : ''}
               </div>
             </div>
           `).join('')}

@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nova triagem — Eu Digo X</title>
+  <link rel="stylesheet" href="../assets/css/base.css">
+  <link rel="stylesheet" href="../assets/css/wizard.css">
+</head>
+<body class="wizard-page">
+
+  <div class="container-sm" style="margin-bottom: var(--space-4); display:flex; justify-content:space-between; align-items:center;">
+    <a href="patient-dashboard.html" class="logo" style="display: inline-flex;">
+      <span class="logo-mark">🦋</span> Eu Digo X
+    </a>
+    <a href="patient-dashboard.html" class="text-small text-muted">← Voltar ao meu painel</a>
+  </div>
+
+  <div class="wizard">
+    <div class="wizard-header">
+      <div id="wizard-step-indicator" class="wizard-step-indicator">Etapa 1 de 3</div>
+      <h2 id="wizard-title" class="wizard-title">Nova triagem</h2>
+      <p id="wizard-subtitle" class="wizard-subtitle">Carregando...</p>
+      <div class="wizard-progress">
+        <div class="wizard-progress-bar active"></div>
+        <div class="wizard-progress-bar"></div>
+        <div class="wizard-progress-bar"></div>
+        <div class="wizard-progress-bar"></div>
+      </div>
+    </div>
+
+    <div class="wizard-body" id="wizard-body"></div>
+
+    <div class="wizard-footer">
+      <button type="button" id="btn-back" class="btn btn-ghost">← Voltar</button>
+      <button type="button" id="btn-next" class="btn btn-primary">Continuar</button>
+    </div>
+  </div>
+
+  <script src="../assets/js/api.js"></script>
+  <script>
+    if (!requireAuth(['patient'])) { /* redireciona */ }
+
+    const TOTAL = 4;
+    const state = {
+      step: 1,
+      patient: null,
+      indicators: { development: [], behavioral: [], physical: [] },
+      answers: {},   // { indicatorId: { answer } }
+      uploads: { photo_front: null, photo_side: null, medical_request: null },
+      socio: {
+        household_size: '', income_range: '', receives_benefit: false,
+        benefit_details: '', provider_work_status: '', has_health_plan: false,
+        provider_education: '', observations: '',
+      },
+      submitting: false,
+      done: false,
+    };
+
+    // $ e $$ já vêm do api.js (não redeclarar — daria erro de "already declared").
+    function escapeHtml(s) {
+      return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+    function escapeAttr(s) { return escapeHtml(s); }
+
+    async function init() {
+      try {
+        const me = await api.get('/patients/me');
+        if (!me || !me.patient) { showNoPatient(); return; }
+        state.patient = me.patient;
+        // Só libera nova triagem se a consulta da triagem anterior já foi realizada.
+        if (!canRetriage(me)) { showBlocked(); return; }
+        const ind = await api.get('/indicators/list?sex=' + encodeURIComponent(me.patient.biological_sex));
+        state.indicators = ind.indicators_by_category || { development: [], behavioral: [], physical: [] };
+        render();
+      } catch (err) {
+        if (err.status === 404) { showNoPatient(); return; }
+        $('#wizard-body').innerHTML = '<p class="text-muted">Não foi possível carregar: ' + escapeHtml(err.message || '') + '</p>';
+      }
+    }
+
+    // Regra: só libera nova triagem se há consulta realizada (completed) na data
+    // da última triagem ou depois dela.
+    function canRetriage(me) {
+      const screenings = me.screenings || [];
+      if (screenings.length === 0) return true; // ainda não tem triagem (caso de borda)
+      const last = screenings[0]; // backend ordena por created_at DESC
+      const lastDate = new Date(String(last.submitted_at || last.created_at || '').replace(' ', 'T'));
+      return (me.appointments || []).some(a =>
+        a.status === 'completed' &&
+        new Date(String(a.scheduled_at || '').replace(' ', 'T')) >= lastDate);
+    }
+
+    function showBlocked() {
+      $('#wizard-title').textContent = 'Nova triagem ainda não disponível';
+      $('#wizard-subtitle').textContent = '';
+      $('.wizard-progress').style.display = 'none';
+      $('#wizard-step-indicator').style.display = 'none';
+      $('.wizard-footer').style.display = 'none';
+      $('#wizard-body').innerHTML = `
+        <div class="empty-state" style="padding: var(--space-5);">
+          <div>Para fazer uma nova triagem, primeiro <strong>agende e realize a consulta</strong> da sua última triagem.</div>
+          <div style="margin-top: var(--space-4); display:flex; gap: var(--space-3); justify-content:center; flex-wrap:wrap;">
+            <a href="agendar.html" class="btn btn-primary">📅 Agendar consulta</a>
+            <a href="patient-dashboard.html" class="btn btn-ghost">Voltar ao painel</a>
+          </div>
+        </div>`;
+    }
+
+    function showNoPatient() {
+      $('#wizard-title').textContent = 'Você ainda não tem uma triagem';
+      $('#wizard-subtitle').textContent = '';
+      $('.wizard-progress').style.display = 'none';
+      $('#wizard-step-indicator').style.display = 'none';
+      $('.wizard-footer').style.display = 'none';
+      $('#wizard-body').innerHTML = `
+        <div class="empty-state" style="padding: var(--space-5);">
+          <div>Para fazer uma nova triagem, primeiro é preciso ter a triagem inicial cadastrada.</div>
+          <div style="margin-top: var(--space-4);">
+            <a href="triagem.html" class="btn btn-primary">Iniciar triagem →</a>
+          </div>
+        </div>`;
+    }
+
+    /* ===== Render ===== */
+    function render() {
+      const titles = {
+        1: ['Etapa 1 de 4', 'Questionário de triagem', 'Responda com base no que é observado hoje no paciente.'],
+        2: ['Etapa 2 de 4', 'Fotos e requisição médica', 'Reenvie os anexos para esta nova triagem.'],
+        3: ['Etapa 3 de 4', 'Triagem socioeconômica', 'Sobre o contexto da família (a clínica usa só pra conhecer o caso).'],
+        4: ['Etapa 4 de 4', 'Revisão', 'Confira e envie. A equipe clínica vai analisar.'],
+      };
+      const [ind, title, sub] = titles[state.step];
+      $('#wizard-step-indicator').textContent = ind;
+      $('#wizard-title').textContent = title;
+      $('#wizard-subtitle').textContent = sub;
+      $$('.wizard-progress-bar').forEach((b, i) => {
+        b.classList.remove('active', 'completed');
+        if (i + 1 < state.step) b.classList.add('completed');
+        if (i + 1 === state.step) b.classList.add('active');
+      });
+
+      let html = '';
+      if (state.step === 1) html = renderIndicators();
+      if (state.step === 2) html = renderUploads();
+      if (state.step === 3) html = renderSocio();
+      if (state.step === 4) html = renderReview();
+      $('#wizard-body').innerHTML = html;
+
+      $('#btn-back').style.visibility = state.step === 1 ? 'hidden' : 'visible';
+      $('#btn-next').textContent = state.submitting
+        ? 'Enviando...'
+        : (state.step === TOTAL ? 'Enviar para análise' : 'Continuar');
+      $('#btn-next').disabled = state.submitting;
+      bind();
+    }
+
+    function renderIndicators() {
+      const cats = [
+        ['development', 'Desenvolvimento'],
+        ['behavioral',  'Comportamento'],
+        ['physical',    'Características físicas'],
+      ];
+      let html = '';
+      cats.forEach(([key, label]) => {
+        const list = state.indicators[key] || [];
+        if (!list.length) return;
+        html += `<h3 style="font-family: var(--font-body); font-size: var(--fs-base); margin: var(--space-4) 0 var(--space-2);">${label}</h3>`;
+        html += list.map(ind => {
+          const ans = state.answers[ind.id] && state.answers[ind.id].answer;
+          return `
+            <div class="indicator-card ${ans ? 'answered' : ''}" data-indicator-id="${ind.id}">
+              <div class="indicator-question">
+                <div class="indicator-text">
+                  <strong>${escapeHtml(ind.lay_label)}</strong>
+                  <small>Termo clínico: ${escapeHtml(ind.display_name)}</small>
+                </div>
+                <button type="button" class="tooltip-trigger" aria-label="Mais informações">
+                  ?<span class="tooltip-content">${escapeHtml(ind.clinical_tooltip)}</span>
+                </button>
+              </div>
+              <div class="radio-group">
+                ${['yes', 'no', 'unknown'].map(opt => {
+                  const lm = { yes: 'Sim', no: 'Não', unknown: 'Não sei' };
+                  return `<label class="radio-option ${ans === opt ? 'selected' : ''}">
+                    <input type="radio" name="ind_${ind.id}" value="${opt}" ${ans === opt ? 'checked' : ''}>${lm[opt]}</label>`;
+                }).join('')}
+              </div>
+            </div>`;
+        }).join('');
+      });
+      return html;
+    }
+
+    function renderUploads() {
+      const u = state.uploads;
+      return `
+        <div class="upload-section" style="background: var(--color-bg-soft, #f5f7fa); border-radius: 8px; padding: var(--space-4); margin-bottom: var(--space-5);">
+          <h3 style="margin-top: 0; font-family: var(--font-body); font-size: var(--fs-base);">Foto do rosto — frente e perfil</h3>
+          <p class="text-small" style="margin-top: var(--space-1);">
+            Duas fotos do rosto do paciente: uma de <strong>frente</strong> e uma de <strong>perfil</strong>,
+            em parede clara, boa iluminação, sem óculos, boné ou cabelo cobrindo o rosto.
+          </p>
+        </div>
+        ${renderUploadField('photo_front', 'Foto de frente', 'image/jpeg,image/png', u.photo_front)}
+        ${renderUploadField('photo_side',  'Foto de perfil', 'image/jpeg,image/png', u.photo_side)}
+        <div class="upload-section" style="background: var(--color-bg-soft, #f5f7fa); border-radius: 8px; padding: var(--space-4); margin: var(--space-6) 0 var(--space-5);">
+          <h3 style="margin-top: 0; font-family: var(--font-body); font-size: var(--fs-base);">Requisição médica</h3>
+          <p class="text-small" style="margin-top: var(--space-1);">
+            Pedido de exame assinado por um médico, solicitando a investigação molecular do X Frágil
+            (PCR / Southern Blotting do gene FMR1). Aceitamos foto ou PDF, com carimbo/CRM legível.
+          </p>
+        </div>
+        ${renderUploadField('medical_request', 'Requisição médica', 'application/pdf,image/jpeg,image/png', u.medical_request)}
+        <p class="text-small text-muted" style="margin-top: var(--space-4);">
+          🔒 Máx. 5 MB por arquivo. Dados sensíveis (LGPD), protegidos no servidor.
+        </p>`;
+    }
+
+    function renderUploadField(kind, label, accept, current) {
+      const id = `upload_${kind}`;
+      const sizeKb = current ? Math.round(current.size_bytes / 1024) : 0;
+      return `
+        <div class="field" data-upload-kind="${kind}">
+          <label for="${id}">${label}</label>
+          <input class="input" id="${id}" type="file" accept="${accept}" ${current ? 'data-has-file="1"' : ''} style="padding: var(--space-2);" />
+          <div class="upload-status" data-upload-status="${kind}" style="margin-top: var(--space-2); font-size: var(--fs-sm);">
+            ${ current
+              ? `<span style="color: var(--color-success, #2a7a3e);">✓ Enviado: ${escapeHtml(current.original_name)} (${sizeKb} KB)</span>`
+              : `<span class="text-muted">Nenhum arquivo enviado ainda.</span>` }
+          </div>
+        </div>`;
+    }
+
+    function renderSocio() {
+      const s = state.socio;
+      return `
+        <div class="field">
+          <label for="socio_household_size">1. Quantas pessoas moram na casa (incluindo o paciente)?</label>
+          <input class="input" id="socio_household_size" type="number" min="1" max="30" step="1"
+                 value="${escapeAttr(s.household_size)}" placeholder="Ex: 4" />
+        </div>
+        <div class="field">
+          <label>2. Renda mensal total da família</label>
+          <div class="radio-group" style="grid-template-columns: 1fr 1fr;">
+            ${[['up_to_1','Até 1 salário mínimo'],['1_to_2','De 1 a 2 salários'],['2_to_3','De 2 a 3 salários'],['above_3','Mais de 3 salários']].map(([v,lbl]) => `
+              <label class="radio-option ${s.income_range === v ? 'selected' : ''}">
+                <input type="radio" name="socio_income_range" value="${v}" ${s.income_range === v ? 'checked' : ''}>${lbl}</label>`).join('')}
+          </div>
+        </div>
+        <div class="field">
+          <label>3. A família recebe algum benefício social?</label>
+          <div class="radio-group" style="grid-template-columns: 1fr 1fr;">
+            <label class="radio-option ${s.receives_benefit === true ? 'selected' : ''}">
+              <input type="radio" name="socio_receives_benefit" value="yes" ${s.receives_benefit === true ? 'checked' : ''}> Sim</label>
+            <label class="radio-option ${s.receives_benefit === false ? 'selected' : ''}">
+              <input type="radio" name="socio_receives_benefit" value="no" ${s.receives_benefit === false ? 'checked' : ''}> Não</label>
+          </div>
+          ${s.receives_benefit ? `
+            <input class="input" id="socio_benefit_details" type="text" value="${escapeAttr(s.benefit_details)}"
+                   placeholder="Quais benefícios? Ex: Bolsa Família, BPC..." style="margin-top: var(--space-2);" />` : ''}
+        </div>
+        <div class="field">
+          <label>4. Situação de trabalho do principal provedor</label>
+          <div class="radio-group" style="grid-template-columns: 1fr 1fr;">
+            ${[['formal','Emprego formal (CLT, servidor)'],['informal','Trabalho informal / autônomo'],['unemployed','Desempregado(a)'],['retired','Aposentado(a) / pensionista']].map(([v,lbl]) => `
+              <label class="radio-option ${s.provider_work_status === v ? 'selected' : ''}">
+                <input type="radio" name="socio_work_status" value="${v}" ${s.provider_work_status === v ? 'checked' : ''}>${lbl}</label>`).join('')}
+          </div>
+        </div>
+        <div class="field">
+          <label>5. A família possui plano de saúde?</label>
+          <div class="radio-group" style="grid-template-columns: 1fr 1fr;">
+            <label class="radio-option ${s.has_health_plan === true ? 'selected' : ''}">
+              <input type="radio" name="socio_has_plan" value="yes" ${s.has_health_plan === true ? 'checked' : ''}> Sim</label>
+            <label class="radio-option ${s.has_health_plan === false ? 'selected' : ''}">
+              <input type="radio" name="socio_has_plan" value="no" ${s.has_health_plan === false ? 'checked' : ''}> Não</label>
+          </div>
+        </div>
+        <div class="field">
+          <label for="socio_education">6. Escolaridade do responsável / provedor</label>
+          <select class="select" id="socio_education">
+            <option value="">Selecione...</option>
+            ${[['fundamental_incomplete','Ensino fundamental incompleto'],['fundamental_complete','Ensino fundamental completo'],['high_school_incomplete','Ensino médio incompleto'],['high_school_complete','Ensino médio completo'],['higher_incomplete','Ensino superior incompleto'],['higher_complete','Ensino superior completo'],['postgrad_incomplete','Pós-graduação incompleta'],['postgrad_complete','Pós-graduação completa']].map(([v,lbl]) => `
+              <option value="${v}" ${s.provider_education === v ? 'selected' : ''}>${lbl}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field">
+          <label for="socio_observations">7. Observações adicionais (opcional)</label>
+          <textarea class="input" id="socio_observations" rows="4" style="resize: vertical; min-height: 90px; font-family: inherit;"
+                    placeholder="Algo mais que ache importante para a clínica saber...">${escapeHtml(s.observations || '')}</textarea>
+        </div>
+        <p class="text-small text-muted" style="margin-top: var(--space-4);">
+          A decisão sobre apoio é sempre tomada por um profissional — o sistema não decide nada automaticamente.
+        </p>`;
+    }
+
+    function renderReview() {
+      const allInd = [...state.indicators.development, ...state.indicators.behavioral, ...state.indicators.physical];
+      const yesCount = allInd.filter(i => state.answers[i.id] && state.answers[i.id].answer === 'yes').length;
+      const incomeLabels = { up_to_1: 'Até 1 salário', '1_to_2': 'De 1 a 2', '2_to_3': 'De 2 a 3', above_3: 'Mais de 3' };
+      const s = state.socio;
+      return `
+        <div class="review-section">
+          <h4>Questionário</h4>
+          <ul class="review-list">
+            <li><span class="label">Itens respondidos</span><span class="value">${allInd.length}</span></li>
+            <li><span class="label">Respostas "Sim"</span><span class="value">${yesCount}</span></li>
+          </ul>
+          <p class="text-small text-muted">O score é calculado automaticamente ao enviar.</p>
+        </div>
+        <div class="review-section">
+          <h4>Anexos</h4>
+          <ul class="review-list">
+            <li><span class="label">Foto de frente</span><span class="value">${state.uploads.photo_front ? '✓ enviada' : '—'}</span></li>
+            <li><span class="label">Foto de perfil</span><span class="value">${state.uploads.photo_side ? '✓ enviada' : '—'}</span></li>
+            <li><span class="label">Requisição médica</span><span class="value">${state.uploads.medical_request ? '✓ enviada' : '—'}</span></li>
+          </ul>
+        </div>
+        <div class="review-section">
+          <h4>Socioeconômica</h4>
+          <ul class="review-list">
+            <li><span class="label">Pessoas na casa</span><span class="value">${escapeHtml(s.household_size)}</span></li>
+            <li><span class="label">Renda da família</span><span class="value">${escapeHtml(incomeLabels[s.income_range] || '—')}</span></li>
+            <li><span class="label">Benefício social</span><span class="value">${s.receives_benefit ? 'Sim' : 'Não'}</span></li>
+            <li><span class="label">Plano de saúde</span><span class="value">${s.has_health_plan ? 'Sim' : 'Não'}</span></li>
+          </ul>
+        </div>
+        <p class="text-small text-muted" style="margin-top: var(--space-3);">
+          Seus dados pessoais e endereço já cadastrados continuam valendo — esta nova triagem reaproveita eles.
+        </p>`;
+    }
+
+    /* ===== Eventos ===== */
+    function bind() {
+      if (state.step === 1) {
+        $$('.indicator-card').forEach(card => {
+          const id = parseInt(card.dataset.indicatorId, 10);
+          $$(`input[name="ind_${id}"]`, card).forEach(r => {
+            r.onchange = (e) => {
+              state.answers[id] = { answer: e.target.value };
+              card.classList.add('answered');
+              $$('.radio-option', card).forEach(opt =>
+                opt.classList.toggle('selected', opt.querySelector('input').checked));
+            };
+          });
+        });
+      }
+      if (state.step === 2) {
+        ['photo_front', 'photo_side', 'medical_request'].forEach(kind => {
+          const input = $(`#upload_${kind}`);
+          if (!input) return;
+          input.onchange = async (e) => {
+            const file = e.target.files && e.target.files[0];
+            if (!file) return;
+            const MAX = 5 * 1024 * 1024;
+            const allowed = kind === 'medical_request'
+              ? ['application/pdf', 'image/jpeg', 'image/png']
+              : ['image/jpeg', 'image/png'];
+            if (file.size > MAX) { toast.error('Arquivo grande demais (máx. 5 MB).'); input.value = ''; return; }
+            if (!allowed.includes(file.type)) { toast.error(`Formato não aceito para "${file.name}".`); input.value = ''; return; }
+            const statusEl = $(`[data-upload-status="${kind}"]`);
+            statusEl.innerHTML = '<span class="text-muted">Enviando...</span>';
+            input.disabled = true;
+            try {
+              const data = await api.upload('/uploads/create', file, { kind }, (pct) => {
+                statusEl.innerHTML = `<span class="text-muted">Enviando... ${pct}%</span>`;
+              });
+              state.uploads[kind] = {
+                token: data.token, original_name: data.original_name,
+                mime_type: data.mime_type, size_bytes: data.size_bytes,
+              };
+              const kb = Math.round(data.size_bytes / 1024);
+              statusEl.innerHTML = `<span style="color: var(--color-success, #2a7a3e);">✓ Enviado: ${escapeHtml(data.original_name)} (${kb} KB)</span>`;
+            } catch (err) {
+              state.uploads[kind] = null;
+              statusEl.innerHTML = `<span style="color: var(--color-danger, #c5392f);">✗ ${escapeHtml(err.message || 'Falha ao enviar.')}</span>`;
+            } finally {
+              input.disabled = false;
+            }
+          };
+        });
+      }
+      if (state.step === 3) {
+        const s = state.socio;
+        $('#socio_household_size').oninput = (e) => { s.household_size = e.target.value; };
+        $$('input[name="socio_income_range"]').forEach(r => r.onchange = (e) => {
+          s.income_range = e.target.value;
+          $$('input[name="socio_income_range"]').forEach(r2 => r2.closest('.radio-option').classList.toggle('selected', r2.checked));
+        });
+        $$('input[name="socio_receives_benefit"]').forEach(r => r.onchange = (e) => {
+          s.receives_benefit = e.target.value === 'yes';
+          if (!s.receives_benefit) s.benefit_details = '';
+          render();
+        });
+        const det = $('#socio_benefit_details');
+        if (det) det.oninput = (e) => s.benefit_details = e.target.value;
+        $$('input[name="socio_work_status"]').forEach(r => r.onchange = (e) => {
+          s.provider_work_status = e.target.value;
+          $$('input[name="socio_work_status"]').forEach(r2 => r2.closest('.radio-option').classList.toggle('selected', r2.checked));
+        });
+        $$('input[name="socio_has_plan"]').forEach(r => r.onchange = (e) => {
+          s.has_health_plan = e.target.value === 'yes';
+          $$('input[name="socio_has_plan"]').forEach(r2 => r2.closest('.radio-option').classList.toggle('selected', r2.checked));
+        });
+        $('#socio_education').onchange = (e) => s.provider_education = e.target.value;
+        $('#socio_observations').oninput = (e) => s.observations = e.target.value;
+      }
+    }
+
+    /* ===== Validação ===== */
+    function validateStep(step) {
+      if (step === 1) {
+        const allInd = [...state.indicators.development, ...state.indicators.behavioral, ...state.indicators.physical];
+        const unanswered = allInd.filter(i => !state.answers[i.id]);
+        if (unanswered.length > 0) {
+          toast.error(`Responda todos os ${allInd.length} itens (faltam ${unanswered.length}).`);
+          return false;
+        }
+      }
+      if (step === 2) {
+        const u = state.uploads;
+        if (!u.photo_front || !u.photo_side || !u.medical_request) {
+          toast.error('Envie as duas fotos e a requisição médica antes de continuar.');
+          return false;
+        }
+      }
+      if (step === 3) {
+        const s = state.socio;
+        const hh = parseInt(s.household_size, 10);
+        if (!(hh >= 1 && hh <= 30)) { toast.error('Informe quantas pessoas moram na casa (1 a 30).'); return false; }
+        if (!['up_to_1','1_to_2','2_to_3','above_3'].includes(s.income_range)) { toast.error('Selecione a faixa de renda da família.'); return false; }
+        if (!['formal','informal','unemployed','retired'].includes(s.provider_work_status)) { toast.error('Selecione a situação de trabalho do provedor.'); return false; }
+        if (!s.provider_education) { toast.error('Selecione a escolaridade do responsável/provedor.'); return false; }
+      }
+      return true;
+    }
+
+    /* ===== Navegação ===== */
+    function next() {
+      if (state.submitting) return;
+      if (!validateStep(state.step)) return;
+      if (state.step === TOTAL) { submit(); return; }
+      state.step++;
+      render();
+      window.scrollTo(0, 0);
+    }
+    function back() {
+      if (state.step === 1) return;
+      state.step--;
+      render();
+      window.scrollTo(0, 0);
+    }
+
+    async function submit() {
+      state.submitting = true; render();
+      try {
+        const answersArray = Object.entries(state.answers).map(([id, v]) => ({
+          indicator_id: parseInt(id, 10), answer: v.answer, observation: null,
+        }));
+        const s = state.socio;
+        const data = await api.post('/screenings/create-self', {
+          answers: answersArray,
+          upload_tokens: {
+            photo_front:     state.uploads.photo_front     ? state.uploads.photo_front.token     : null,
+            photo_side:      state.uploads.photo_side      ? state.uploads.photo_side.token      : null,
+            medical_request: state.uploads.medical_request ? state.uploads.medical_request.token : null,
+          },
+          socioeconomic: {
+            household_size:       parseInt(s.household_size, 10) || 0,
+            income_range:         s.income_range,
+            receives_benefit:     !!s.receives_benefit,
+            benefit_details:      s.benefit_details || null,
+            provider_work_status: s.provider_work_status,
+            has_health_plan:      !!s.has_health_plan,
+            provider_education:   s.provider_education,
+            observations:         (s.observations || '').trim() || null,
+          },
+        });
+        showSuccess(data);
+      } catch (err) {
+        state.submitting = false; render();
+        const details = err.details && typeof err.details === 'object' ? err.details : null;
+        if (details && Object.keys(details).length > 0) {
+          toast.error(Object.values(details).map(v => Array.isArray(v) ? v.join(' ') : v).join(' '));
+        } else {
+          toast.error(err.message || 'Erro ao enviar. Tente novamente.');
+        }
+      }
+    }
+
+    function showSuccess(data) {
+      state.done = true;
+      $('.wizard-progress').style.display = 'none';
+      $('.wizard-footer').style.display = 'none';
+      $('#wizard-step-indicator').style.display = 'none';
+      $('#wizard-title').textContent = '';
+      $('#wizard-subtitle').textContent = '';
+      $('#wizard-body').innerHTML = `
+        <div class="success-screen" style="text-align:center;">
+          <div class="success-icon" style="font-size:2.5rem;">✓</div>
+          <h1 style="margin-top: var(--space-3);">Nova triagem enviada!</h1>
+          <p>${escapeHtml(data.message || 'A equipe clínica vai analisar suas respostas.')}</p>
+          <div class="success-actions" style="margin-top: var(--space-5); display:flex; gap: var(--space-3); justify-content:center; flex-wrap:wrap;">
+            <a href="patient-dashboard.html" class="btn btn-primary btn-lg">Ir para meu painel</a>
+            <a href="agendar.html" class="btn btn-ghost btn-lg">Agendar consulta</a>
+          </div>
+        </div>`;
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      $('#btn-next').onclick = next;
+      $('#btn-back').onclick = back;
+      init();
+    });
+  </script>
+</body>
+</html>
