@@ -121,10 +121,9 @@ if (!empty($exams) && !empty($screenings)) {
         'threshold'      => $detail ? (float)$detail['threshold_applied'] : null,
         'priority'       => $detail['priority']       ?? null,
         'recommendation' => $detail['recommendation'] ?? null,
-        // Anotações só são exibidas se o médico marcou para incluir no relatório
-        'clinical_notes' => (!empty($detail['include_notes_in_report']) && !empty($detail['clinical_notes']))
-            ? $detail['clinical_notes']
-            : null,
+        // LGPD: anotações clínicas são SEMPRE privadas — nunca retornadas ao paciente.
+        // (Antes dependiam do checkbox "incluir no relatório", que foi removido.)
+        'clinical_notes' => null,
         'reviewed_by'    => $detail['reviewed_by'] ?? null,
         'reviewed_at'    => $detail['reviewed_at'] ?? null,
         'submitted_at'   => $detail['submitted_at'] ?? null,
