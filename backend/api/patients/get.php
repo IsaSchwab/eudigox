@@ -85,7 +85,7 @@ $appointments = $stmt->fetchAll();
 // 5) Uploads (fotos + requisição) — não retorna o arquivo, só os metadados.
 //    O front baixa o arquivo via /api/uploads/get.php?id=NN
 $stmt = $pdo->prepare("
-    SELECT id, kind, original_name, mime_type, size_bytes, created_at
+    SELECT id, screening_id, kind, original_name, mime_type, size_bytes, created_at
     FROM patient_uploads
     WHERE patient_id = :pid AND deleted_at IS NULL
     ORDER BY kind, created_at DESC
