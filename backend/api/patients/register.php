@@ -219,7 +219,7 @@ if (!$phoneAck && strlen($phoneDigits) >= 10) {
     }
 }
 
-$uploadsDir  = realpath(__DIR__ . '/../../uploads');
+$uploadsDir  = UPLOAD_DIR;
 $pendingDir  = $uploadsDir . '/_pending';
 $movedFiles  = []; // [dst => src] — pra desfazer se a transação falhar
 

@@ -31,7 +31,7 @@ const ALLOWED_MIMES = [
 ];
 const ALLOWED_KINDS = ['photo_front', 'photo_side', 'medical_request'];
 
-$tempDir = realpath(__DIR__ . '/../../uploads') . '/_pending';
+$tempDir = UPLOAD_DIR . '/_pending';
 if (!is_dir($tempDir)) {
     @mkdir($tempDir, 0775, true);
 }

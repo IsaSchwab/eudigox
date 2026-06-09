@@ -6,7 +6,7 @@
  * Funciona sem mod_rewrite (adiciona .php automaticamente nas URLs).
  */
 
-const API_BASE = 'http://localhost/sgx/backend/api';
+const API_BASE = '/sgx/backend/api'; // relativo: funciona no MAMP local e no Azure (app servido sob /sgx/)
 
 const USER_KEY = 'sgx.user';
 

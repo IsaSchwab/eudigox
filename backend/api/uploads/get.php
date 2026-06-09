@@ -41,7 +41,7 @@ if (!$isProfessional && !$isOwnerPatient) {
     Response::forbidden();
 }
 
-$filePath = realpath(__DIR__ . '/../../uploads') . '/' . $row['stored_path'];
+$filePath = UPLOAD_DIR . '/' . $row['stored_path'];
 if (!is_file($filePath)) {
     Response::notFound('Arquivo físico não encontrado no servidor.');
 }

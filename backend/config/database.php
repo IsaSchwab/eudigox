@@ -1,11 +1,13 @@
 <?php
 /**
- * Database — singleton PDO com fallback automático.
- * 
- * Tenta conectar usando a porta configurada (DB_PORT). Se falhar, tenta
- * outras portas comuns do MAMP/XAMPP. Útil porque o MAMP às vezes muda
- * de porta (3306 ↔ 8889) dependendo da configuração.
- * 
+ * Database — singleton PDO.
+ *
+ * Dois modos:
+ *  - AZURE / produção (DB_SSL ligado): conecta direto no host/porta
+ *    configurados, com SSL (Azure exige). Uma tentativa.
+ *  - LOCAL / MAMP (DB_SSL desligado): mantém o comportamento antigo, com
+ *    fallback automático de portas (8889 ↔ 3306) e socket Unix do MAMP.
+ *
  * Uso: $pdo = Database::getConnection();
  */
 
@@ -28,7 +30,35 @@ class Database
             PDO::MYSQL_ATTR_INIT_COMMAND => "SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci",
         ];
 
-        // Lista de tentativas: porta configurada primeiro, depois fallbacks comuns do MAMP
+        // =============================================================
+        // MODO AZURE / PRODUÇÃO — conexão única com SSL
+        // =============================================================
+        if (DB_SSL) {
+            // Liga SSL. Se DB_SSL_CA apontar pra um certificado existente,
+            // faz verificação completa do servidor; senão, criptografa em
+            // trânsito sem verificar o certificado (suficiente p/ o TCC).
+            if (DB_SSL_CA !== '' && file_exists(DB_SSL_CA)) {
+                $options[PDO::MYSQL_ATTR_SSL_CA] = DB_SSL_CA;
+                $options[PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT] = true;
+            } else {
+                $options[PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT] = false;
+            }
+
+            $dsn = sprintf(
+                'mysql:host=%s;port=%s;dbname=%s;charset=%s',
+                DB_HOST, DB_PORT, DB_NAME, DB_CHARSET
+            );
+            try {
+                self::$instance = new PDO($dsn, DB_USER, DB_PASS, $options);
+                return self::$instance;
+            } catch (PDOException $e) {
+                self::fail($e);
+            }
+        }
+
+        // =============================================================
+        // MODO LOCAL / MAMP — fallback de portas + socket
+        // =============================================================
         $portsToTry = array_unique([DB_PORT, '8889', '3306']);
         $lastError  = null;
 
@@ -46,8 +76,7 @@ class Database
             }
         }
 
-        // Último recurso: socket Unix do MAMP (sempre funciona quando o MAMP
-        // está rodando, independente da porta)
+        // Último recurso: socket Unix do MAMP
         $sockets = [
             '/Applications/MAMP/tmp/mysql/mysql.sock',
             '/Applications/MAMP/Library/tmp/mysql.sock',
@@ -66,10 +95,15 @@ class Database
             }
         }
 
-        // Falhou tudo — devolve erro útil
+        self::fail($lastError);
+    }
+
+    /** Erro de conexão padronizado (não vaza detalhes em produção). */
+    private static function fail(?PDOException $e): void
+    {
         http_response_code(500);
         $message = APP_ENV === 'development'
-            ? 'Erro de conexão com o banco: ' . ($lastError ? $lastError->getMessage() : 'desconhecido')
+            ? 'Erro de conexão com o banco: ' . ($e ? $e->getMessage() : 'desconhecido')
             : 'Erro interno no servidor.';
         echo json_encode(['error' => $message]);
         exit;
