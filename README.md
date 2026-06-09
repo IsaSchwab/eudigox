@@ -1,136 +1,105 @@
-# 🦋 Eu Digo X — Sistema de Triagem da Síndrome do X Frágil
+# Eu Digo X — Sistema Web para Triagem Precoce da Síndrome do X Frágil
 
-Sistema web para apoio à triagem precoce da Síndrome do X Frágil (SXF),
-desenvolvido como Trabalho de Conclusão de Curso (PUCPR) em parceria com o
-**Instituto Buko Kaesemodel**.
+Plataforma web que apoia profissionais de saúde e famílias na triagem clínica
+precoce da Síndrome do X Frágil, desenvolvida em parceria com o Instituto Buko
+Kaesemodel. Trabalho da disciplina de Experiência Criativa do curso de Ciência
+da Computação da PUCPR.
 
-- **Frontend:** HTML + CSS + JavaScript (sem framework)
-- **Backend:** PHP + MySQL (API em JSON)
-- **Ambiente de desenvolvimento:** MAMP (recomendado) / XAMPP / Laragon
+## Sistema em produção
 
----
+A aplicação está publicada e acessível em:
+**https://eudigox-app-fnfwcpbgc2aybhcj.centralus-01.azurewebsites.net**
 
-## 🗂 Estrutura do projeto
+## Sobre o projeto
+
+O sistema permite o cadastro de pacientes, a realização de uma triagem baseada
+em indicadores clínicos, o cálculo de um escore de priorização e o
+acompanhamento do paciente pela equipe clínica (recepção, enfermagem e
+medicina), até o registro de exames moleculares confirmatórios.
+
+## Funcionalidades principais
+
+- Cadastro de pacientes e de profissionais, com controle de acesso por perfil (RBAC).
+- Triagem clínica por questionário de indicadores, com cálculo de escore por sexo.
+- Prontuário com anotações clínicas por consulta (histórico preservado).
+- Agendamento de consultas e registro de exames moleculares.
+- Triagem socioeconômica e upload de documentos (fotos e requisição médica).
+- Trilha de auditoria e conformidade com a LGPD.
+
+## Tecnologias
+
+- Back-end: PHP 8 (API REST, acesso ao banco via PDO).
+- Banco de dados: MySQL 8.
+- Front-end: HTML, CSS e JavaScript.
+- Nuvem: Microsoft Azure (App Service + Azure Database for MySQL).
+- Controle de versão: Git / GitHub.
+
+## Estrutura do repositório
 
 ```
-eudigox/
-├── frontend/              → camada de apresentação
-│   ├── pages/             → todas as telas HTML
-│   └── assets/            → css/, js/, img/
-├── backend/               → API PHP
-│   ├── api/               → endpoints (cada arquivo é um endpoint)
-│   │   ├── auth/          → login, logout, me
-│   │   ├── patients/      → register, get, list, me
-│   │   ├── screenings/    → list, get, review, edit-answers
-│   │   ├── appointments/  → agenda e consultas
-│   │   ├── exams/         → registro de exame molecular
-│   │   ├── uploads/       → fotos clínicas do paciente
-│   │   ├── users/         → gestão de profissionais (admin)
-│   │   └── indicators/    → catálogo de indicadores
-│   ├── config/            → config.example.php, database.php
-│   └── core/              → Auth, Request, Response, Validator,
-│                            ScoreCalculator, Audit, bootstrap
-└── sql/                   → schema do banco + migrations
+sgx/
+├── frontend/        Camada de apresentação (páginas, estilos, scripts)
+├── backend/         Camada de processamento (API, configuração, núcleo)
+└── sql/             Script de estrutura (schema) e migrações
+docs/                Documentação (modelagem, implantação, tutorial, diagramas)
 ```
 
----
+## Como executar localmente
 
-## 🚀 Como rodar localmente (MAMP no Mac)
+Pré-requisitos: PHP 8, MySQL 8 e um servidor web (recomenda-se o MAMP).
 
-### 1. Clone para a pasta do servidor
+1. Clone o repositório e coloque a pasta `sgx` no diretório público do servidor.
+2. Inicie o Apache e o MySQL.
+3. Crie o banco `sgx_db` e execute `sql/schema.sql` e as migrações da pasta
+   `sql/` na ordem cronológica.
+4. Acesse `http://localhost/sgx/frontend/pages/index.html` no navegador.
 
-```bash
-cd /Applications/MAMP/htdocs
-git clone https://github.com/SEU_USUARIO/eudigox.git sgx
-```
+As credenciais do banco são lidas de variáveis de ambiente; na ausência delas
+(ambiente local), o sistema usa os valores padrão do MAMP, sem configuração
+adicional.
 
-### 2. Crie sua configuração local
+## Implantação em produção (Microsoft Azure)
 
-```bash
-cd sgx/backend/config
-cp config.example.php config.php
-```
+O sistema está publicado na nuvem Microsoft Azure, com a seguinte arquitetura:
 
-Edite `config.php` com as credenciais do seu MySQL e os parâmetros
-clínicos (veja a seção *Dados clínicos* abaixo).
+- **Azure App Service** (Linux, PHP 8.3): hospeda a aplicação, com "Sempre
+  Ativado" (Always On) e redirecionamento automático para HTTPS.
+- **Azure Database for MySQL — Flexible Server** (MySQL 8.4): hospeda o banco
+  `sgx_db`, com conexão obrigatória por SSL e firewall restrito.
+- **Variáveis de ambiente (App Settings)**: as credenciais do banco não ficam
+  no código — são lidas de variáveis de ambiente, atendendo à LGPD.
 
-### 3. Ligue o MAMP
+Resumo do processo de implantação:
 
-Abra o MAMP → **Start Servers** → espere Apache e MySQL ficarem verdes.
+1. Provisionar o banco MySQL no Azure e importar o `schema.sql` e as migrações
+   (script consolidado) via cliente MySQL com SSL.
+2. Criar o App Service (PHP 8.3, Linux) e cadastrar as variáveis de ambiente
+   (host, usuário, senha, `DB_SSL`, `UPLOAD_DIR`, entre outras).
+3. Publicar o código pelo Azure Cloud Shell e ativar "Somente HTTPS".
 
-### 4. Importe o banco de dados
+O passo a passo completo, com requisitos e versões, está em
+`docs/Documento-Implantacao.pdf`.
 
-1. **Open WebStart Page** → **Tools → phpMyAdmin**
-2. Aba **Importar** → escolha `sql/schema.sql` → **Executar**
-3. Rode as migrations da pasta `sql/` (são idempotentes)
-4. Rode o seed privado de indicadores (veja *Dados clínicos*)
+## Documentação
 
-### 5. Pronto
+- Documento de Requisitos e Especificação Técnica
+- Documentação do Banco de Dados (modelagem conceitual, lógica e física)
+- Documento Técnico de Implantação
+- Tutorial de Uso para profissionais de saúde
 
-- **Landing:** http://localhost/sgx/frontend/pages/index.html
-- **Login:** http://localhost/sgx/frontend/pages/login.html
-- **Triagem (paciente):** http://localhost/sgx/frontend/pages/triagem.html
+## Segurança e LGPD
 
----
+Senhas armazenadas como hash bcrypt; consultas parametrizadas (PDO); conexões
+cifradas (HTTPS e SSL no banco); credenciais fora do código (variáveis de
+ambiente); exclusão lógica (soft delete) e trilha de auditoria.
 
-## 🧬 Dados clínicos (não versionados)
+## Autores
 
-Os **pesos dos indicadores** e os **limiares de score** são definidos pela
-equipe clínica do Instituto Buko Kaesemodel e **não são publicados neste
-repositório**. Eles vivem em:
+- Isabella Schwab
+- Leonardo Simioni Torquato
+- Rafael Engel
+- Vicente Nogueira
 
-| O quê | Onde fica (local, fora do git) |
-|---|---|
-| Pesos dos 12 indicadores | `sql/seeds-local/seed-indicators.sql` |
-| Limiares de score (M/F) | `backend/config/config.php` |
-| Usuários reais | `sql/seeds-local/` |
+## Licença
 
-Para obter esses arquivos, entre em contato com a equipe do projeto.
-Sem o seed, o sistema funciona, mas a triagem não calcula score.
-
----
-
-## 🔐 Autenticação e segurança
-
-- **Sessão PHP nativa** com cookies httpOnly (sem tokens no localStorage)
-- Senhas com hash **bcrypt** (`password_hash`)
-- Consultas com **PDO + prepared statements** (proteção contra SQL injection)
-- **Trilha de auditoria** (`backend/core/Audit.php`) registra ações sensíveis
-
-### LGPD
-
-O sistema trata dados pessoais sensíveis (saúde). Por isso este repositório
-**não contém**: fotos ou dados de pacientes, logs, credenciais ou seeds com
-dados reais — tudo isso é excluído via `.gitignore`. Uploads de pacientes
-ficam fora do controle de versão e protegidos por `.htaccess`.
-
----
-
-## 👥 Perfis de acesso
-
-| Perfil | Pode acessar |
-|--------|--------------|
-| `patient` | Painel próprio, prontuário próprio, agendamento |
-| `nurse` | Dashboard clínico, prontuário (sem registrar exame) |
-| `receptionist` | Agenda, calendário e consultas |
-| `doctor` | Dashboard clínico, prontuário, registrar exame molecular |
-| `admin` | Gestão de profissionais + tudo do médico |
-
----
-
-## 🧮 Score de triagem
-
-- Cada indicador tem peso por sexo (M/F), definido pela equipe clínica
-- Score = soma dos pesos dos indicadores respondidos com **"Sim"**
-- Score ≥ limiar → encaminhamento para exame molecular (PCR / Southern Blotting)
-
-Implementado em `backend/core/ScoreCalculator.php`. Os valores numéricos
-vêm do banco e da configuração local (ver *Dados clínicos*).
-
----
-
-## 👥 Equipe
-
-Leonardo Simioni Torquato · Rafael Engel · Vicente Nogueira · Isabella Schwab
-
-**Parceria:** Instituto Buko Kaesemodel · PUCPR
+Distribuído sob a licença MIT. Consulte o arquivo `LICENSE` para mais detalhes.
