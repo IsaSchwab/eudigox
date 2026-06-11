@@ -40,23 +40,57 @@ medicina), até o registro de exames moleculares confirmatórios.
 sgx/
 ├── frontend/        Camada de apresentação (páginas, estilos, scripts)
 ├── backend/         Camada de processamento (API, configuração, núcleo)
-└── sql/             Script de estrutura (schema) e migrações
+└── sql/             Banco de dados
+    ├── setup.sql    Script único: cria o banco inteiro e já popula (use este)
+    ├── schema.sql   Estrutura base (referência)
+    └── migration-*  Migrações aplicadas durante o desenvolvimento (referência)
 docs/                Documentação (modelagem, implantação, tutorial, diagramas)
 ```
 
-## Como executar localmente
+## Como executar localmente (MAMP)
 
-Pré-requisitos: PHP 8, MySQL 8 e um servidor web (recomenda-se o MAMP).
+Pré-requisitos: MAMP (que já traz PHP e MySQL). Funciona no Mac e no Windows.
 
-1. Clone o repositório e coloque a pasta `sgx` no diretório público do servidor.
-2. Inicie o Apache e o MySQL.
-3. Crie o banco `sgx_db` e execute `sql/schema.sql` e as migrações da pasta
-   `sql/` na ordem cronológica.
-4. Acesse `http://localhost/sgx/frontend/pages/index.html` no navegador.
+1. **Clone** o repositório para dentro da pasta pública do servidor, com o nome
+   `sgx`:
 
-As credenciais do banco são lidas de variáveis de ambiente; na ausência delas
-(ambiente local), o sistema usa os valores padrão do MAMP, sem configuração
-adicional.
+   ```
+   git clone https://github.com/IsaSchwab/eudigox.git sgx
+   ```
+
+   No Windows o destino é `C:\MAMP\htdocs\sgx`; no Mac, `/Applications/MAMP/htdocs/sgx`.
+
+2. **Crie sua configuração local** copiando o arquivo de exemplo:
+
+   ```
+   cp backend/config/config.example.php backend/config/config.php
+   ```
+
+   (No Windows, copie e renomeie `config.example.php` para `config.php`.) Com os
+   valores padrão do MAMP, não é preciso ajustar mais nada.
+
+3. **Inicie o MAMP** (Start Servers) e abra o **phpMyAdmin**.
+
+4. **Importe o banco**: na aba *Importar*, selecione o arquivo
+   **`sql/setup.sql`** e execute. Ele cria o banco `sgx_db` do zero, com a
+   estrutura completa, os indicadores e as contas de teste.
+
+5. **Acesse** no navegador:
+
+   ```
+   http://localhost/sgx/frontend/pages/login.html
+   ```
+
+### Contas de teste
+
+Todas com a senha **`EuDigoX2026!`** (apenas para demonstração local):
+
+| Perfil        | E-mail                    |
+|---------------|---------------------------|
+| Administrador | admin@eudigox.test        |
+| Médica        | medica@eudigox.test       |
+| Recepção      | recepcao@eudigox.test     |
+| Paciente      | paciente@eudigox.test     |
 
 ## Implantação em produção (Microsoft Azure)
 
@@ -68,14 +102,6 @@ O sistema está publicado na nuvem Microsoft Azure, com a seguinte arquitetura:
   `sgx_db`, com conexão obrigatória por SSL e firewall restrito.
 - **Variáveis de ambiente (App Settings)**: as credenciais do banco não ficam
   no código — são lidas de variáveis de ambiente, atendendo à LGPD.
-
-Resumo do processo de implantação:
-
-1. Provisionar o banco MySQL no Azure e importar o `schema.sql` e as migrações
-   (script consolidado) via cliente MySQL com SSL.
-2. Criar o App Service (PHP 8.3, Linux) e cadastrar as variáveis de ambiente
-   (host, usuário, senha, `DB_SSL`, `UPLOAD_DIR`, entre outras).
-3. Publicar o código pelo Azure Cloud Shell e ativar "Somente HTTPS".
 
 O passo a passo completo, com requisitos e versões, está em
 `docs/Documento-Implantacao.pdf`.
@@ -90,8 +116,11 @@ O passo a passo completo, com requisitos e versões, está em
 ## Segurança e LGPD
 
 Senhas armazenadas como hash bcrypt; consultas parametrizadas (PDO); conexões
-cifradas (HTTPS e SSL no banco); credenciais fora do código (variáveis de
-ambiente); exclusão lógica (soft delete) e trilha de auditoria.
+cifradas (HTTPS e SSL no banco); credenciais de produção fora do código
+(variáveis de ambiente); exclusão lógica (soft delete) e trilha de auditoria.
+Os dados reais de pacientes e os segredos de produção nunca são versionados.
+Os pesos clínicos presentes em `sql/setup.sql` são provisórios, apenas para
+demonstração.
 
 ## Autores
 

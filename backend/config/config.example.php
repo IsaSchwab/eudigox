@@ -1,7 +1,12 @@
 <?php
 /**
  * Eu Digo X — Configuração principal (EXEMPLO)
- * Copie para config.php e ajuste os valores locais.
+ *
+ * COMO USAR: copie este arquivo para config.php (na mesma pasta) e,
+ * se precisar, ajuste os valores. Com o MAMP padrão, já funciona assim.
+ *
+ *   No Mac:     cp config.example.php config.php
+ *   No Windows: copie e renomeie para config.php
  */
 
 // Ambiente: 'development' | 'production'
@@ -11,7 +16,9 @@ define('APP_VERSION', '1.0.0');
 
 // ===== Banco de dados (defaults do MAMP) =====
 define('DB_HOST', 'localhost');
-define('DB_PORT', '8889');         // MAMP usa 8889 por padrão pro MySQL
+// MAMP no Mac usa a porta 8889; o MAMP no Windows usa 3306.
+// Não precisa se preocupar: o sistema tenta as duas portas automaticamente.
+define('DB_PORT', '8889');
 define('DB_NAME', 'sgx_db');
 define('DB_USER', 'root');
 define('DB_PASS', 'root');         // senha padrão do MAMP é 'root'
@@ -21,24 +28,13 @@ define('DB_CHARSET', 'utf8mb4');
 define('PASSWORD_MIN_LENGTH', 8);
 
 // ===== Validação de domínio do e-mail (MX/A record via DNS) =====
-// Quando ligada, antes de cadastrar a gente checa se o domínio do e-mail
-// (ex: "gmail.com") existe de verdade no DNS. Isso pega erros do tipo
-// "joao@gmaill.com" (com 2 L), mas requer DNS rápido pra não travar.
-//
-// MAMP local: deixa FALSE — o DNS do macOS dentro do PHP-FCGI do MAMP é
-//             lentíssimo (chega a 30s por consulta) e derruba o request
-//             inteiro com "FastCGI idle timeout".
-// Azure / produção: vire TRUE — lá o DNS resolve em milissegundos.
-//
-// Mesmo com isso TRUE, a validação tem timeout interno curto (2s) e
-// "falha aberta": se o DNS demorar, deixa passar em vez de bloquear o
-// cadastro do paciente.
+// Em ambiente local (MAMP) deixe FALSE — o DNS dentro do PHP do MAMP é
+// lento e pode travar o cadastro. Em produção (Azure) pode ficar TRUE.
 define('EMAIL_DOMAIN_CHECK_ENABLED', false);
 define('EMAIL_DOMAIN_CHECK_TIMEOUT_SECONDS', 2);
 
-// CORS — apenas se o front e back estiverem em portas/dominios diferentes
-// Como agora servimos tudo pelo MAMP no localhost:80, o navegador não envia
-// header Origin (mesma origem) — então CORS na prática nem é usado.
+// CORS — só importa se front e back estiverem em portas/domínios diferentes.
+// Servindo tudo pelo MAMP (mesma origem), na prática não é usado.
 define('CORS_ALLOWED_ORIGINS', [
     'http://localhost',
     'http://localhost:80',
@@ -46,11 +42,13 @@ define('CORS_ALLOWED_ORIGINS', [
     'http://127.0.0.1:80',
 ]);
 
-// Limiares de score por sexo — VALORES DEFINIDOS PELA EQUIPE CLÍNICA.
-// Os valores reais não são versionados; solicite à equipe do projeto
-// e preencha abaixo no seu config.php local.
-define('SCORE_THRESHOLD_MALE',   0.00);  // <- substituir pelo valor real
-define('SCORE_THRESHOLD_FEMALE', 0.00);  // <- substituir pelo valor real
+// ===== Limiares de score por sexo =====
+// Valores de referência usados pelo projeto (também citados no
+// backend/core/ScoreCalculator.php). Os pesos dos indicadores estão no
+// sql/setup.sql e são PROVISÓRIOS — ajuste ambos conforme o estudo
+// clínico validado com o Instituto.
+define('SCORE_THRESHOLD_MALE',   0.56);
+define('SCORE_THRESHOLD_FEMALE', 0.55);
 
 // Erros visíveis apenas em dev
 if (APP_ENV === 'development') {
@@ -62,4 +60,4 @@ if (APP_ENV === 'development') {
 }
 
 // Timezone
-date_default_timezone_set('America/Manaus');
+date_default_timezone_set('America/Sao_Paulo');
