@@ -325,11 +325,11 @@ USE sgx_db;
 --   phpMyAdmin → selecione o banco do projeto → aba "SQL" →
 --   cole tudo → Executar
 --
--- É SEGURO rodar de novo: usa "IF NOT EXISTS".
+-- (No setup do zero, a coluna ainda nao existe, entao o ADD direto funciona.)
 -- =====================================================================
 
 ALTER TABLE patients
-  ADD COLUMN IF NOT EXISTS family_history_notes TEXT NULL
+  ADD COLUMN family_history_notes TEXT NULL
     COMMENT 'Histórico familiar relatado pelo paciente/responsável (texto livre, sem peso no score).'
   AFTER guardian_email;
 
