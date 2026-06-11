@@ -10,6 +10,13 @@ da Computação da PUCPR.
 A aplicação está publicada e acessível em:
 **https://eudigox-app-fnfwcpbgc2aybhcj.centralus-01.azurewebsites.net**
 
+## Vídeos
+
+Vídeos demonstrativos publicados no YouTube (detalhes em `videos/VIDEOS.md`):
+
+- **Tutorial de uso do sistema** — https://youtu.be/hVbrL7eLCd8
+- **Como implementar (instalar) o sistema** — https://youtu.be/4Rd7Jp2hzpk
+
 ## Sobre o projeto
 
 O sistema permite o cadastro de pacientes, a realização de uma triagem baseada
